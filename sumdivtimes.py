@@ -66,16 +66,31 @@ def is_gzipped(file_path):
     >>> is_gzipped('')
     False
 
-    Returns False if path is a normal file:
+    Returns False if regular file is empty:
     >>> fd, temp_path = tempfile.mkstemp()
     >>> os.close(fd)
     >>> is_gzipped(temp_path)
     False
+
+    Returns False for regular file with content:
+    >>> f = io.open(temp_path, mode = 'w', encoding='utf-8')
+    >>> f.write('testing...')
+    10
+    >>> f.close()
+    >>> is_gzipped(temp_path)
+    False
     >>> os.remove(temp_path)
 
-    Returns True if path is gzipped:
+    Returns False if gzipped file is empty:
     >>> fd, temp_path = tempfile.mkstemp()
-    >>> os.close(fd)
+    >>> f = gzip.open(temp_path, mode = "wb", compresslevel = 9)
+    >>> f.write(bytes("", 'UTF-8'))
+    0
+    >>> f.close()
+    >>> is_gzipped(temp_path)
+    False
+
+    Returns True if file has gzipped content:
     >>> f = gzip.open(temp_path, mode = "wb", compresslevel = 9)
     >>> f.write(bytes("testing...", 'UTF-8'))
     10
@@ -87,7 +102,7 @@ def is_gzipped(file_path):
 
     try:
         fs = gzip.open(expand_path(file_path))
-        d = fs.read(1)
+        d = next(fs)
         fs.close()
     except:
         return False
