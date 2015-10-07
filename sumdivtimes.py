@@ -8,6 +8,9 @@ scenarios from posterior samples of trees.
 import sys
 import os
 import re
+import io
+import gzip
+import tempfile
 import argparse
 
 _program_info = {
@@ -17,6 +20,166 @@ _program_info = {
     'description': __doc__,
     'copyright': 'Copyright (C) 2015 Jamie Oaks',
     'license': 'GNU GPL version 3 or later',}
+
+
+def expand_path(path):
+    """
+    Returns a full path
+
+    >>> expected_path = os.path.expanduser('~/testing')
+    >>> expected_path == expand_path('~/testing')
+    True
+    """
+
+    return os.path.abspath(os.path.expandvars(os.path.expanduser(path)))
+
+
+def is_file(path):
+    """
+    Returns boolean of whether or not argument is a path
+
+    Returns False if path does not exist:
+    >>> is_file("/this/path/probably/is/not/on/anyones/system")
+    False
+
+    Returns False if the path is a directory:
+    >>> is_file(os.path.dirname(__file__))
+    False
+    
+    Returns True if the path is a file:
+    >>> is_file(__file__)
+    True
+    """
+
+    if not path:
+        return False
+    if not os.path.isfile(path):
+        return False
+    return True
+
+
+def is_gzipped(file_path):
+    """
+    Returns True if argument is a path to a gzipped file; False otherwise.
+
+    Returns False if path does not exist:
+    >>> is_gzipped('')
+    False
+
+    Returns False if path is a normal file:
+    >>> fd, temp_path = tempfile.mkstemp()
+    >>> os.close(fd)
+    >>> is_gzipped(temp_path)
+    False
+    >>> os.remove(temp_path)
+
+    Returns True if path is gzipped:
+    >>> fd, temp_path = tempfile.mkstemp()
+    >>> os.close(fd)
+    >>> f = gzip.open(temp_path, mode = "wb", compresslevel = 9)
+    >>> f.write(bytes("testing...", 'UTF-8'))
+    10
+    >>> f.close()
+    >>> is_gzipped(temp_path)
+    True
+    >>> os.remove(temp_path)
+    """
+
+    try:
+        fs = gzip.open(expand_path(file_path))
+        d = fs.read(1)
+        fs.close()
+    except:
+        return False
+    return True
+
+
+class ReadFile(object):
+    """
+    Obtain a text stream in read mode from a regular or gzipped file.
+
+    Behaves like ``open`` for regular files:
+    >>> test_path = os.path.join(os.path.dirname(__file__), os.path.pardir,
+    ...         'test-data', 'config.yml')
+    >>> if os.path.exists(test_path):
+    ...     with ReadFile(test_path) as f:
+    ...         l = f.next().strip()
+    ...     l == "---"
+    ... else:
+    ...     True
+    ...
+    ...
+    True
+    
+    Behaves like ``open`` for gzipped files:
+    >>> test_path = os.path.join(os.path.dirname(__file__), os.path.pardir,
+    ...         'test-data', 'trees', 'crocs-1.trees.gz')
+    >>> if os.path.exists(test_path):
+    ...     with ReadFile(test_path) as f:
+    ...         l = f.next().strip()
+    ...     l == "#NEXUS"
+    ... else:
+    ...     True
+    ...
+    ...
+    True
+    """
+
+    open_files = set()
+
+    def __init__(self, path):
+        self.path = expand_path(path)
+        self.gzipped = is_gzipped(self.path)
+        self.encoding = 'utf-8'
+        if self.gzipped:
+            self.file_stream = io.TextIOWrapper(
+                    buffer = gzip.GzipFile(filename = self.path,
+                            mode = 'rb'),
+                    encoding = self.encoding)
+        else:
+            self.file_stream = io.open(self.path, mode = 'r',
+                    encoding = self.encoding)
+        self.__class__.open_files.add(self.path)
+
+    def close(self):
+        self.file_stream.close()
+        self.__class__.open_files.remove(self.name)
+
+    def __enter__(self):
+        return self.file_stream
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+    def __iter__(self):
+        return self.file_stream.__iter__()
+
+    def next(self):
+        return next(self.file_stream)
+
+    def read(self):
+        return self.file_stream.read()
+
+    def readline(self):
+        return self.file_stream.readline()
+
+    def readlines(self):
+        return self.file_stream.readlines()
+
+    def _get_closed(self):
+        return self.file_stream.closed
+
+    closed = property(_get_closed)
+
+    def seek(self, i):
+        self.file_stream.seek(i)
+
+    def flush(self):
+        self.file_stream.flush()
+
+    def fileno(self):
+        return self.file_stream.fileno()
+
 
 class ConditionEvaluator(object):
     """
@@ -81,41 +244,6 @@ class ConditionEvaluator(object):
         return eval(self.expression)
 
 
-def expand_path(path):
-    """
-    Returns a full path
-
-    >>> expected_path = os.path.expanduser('~/testing')
-    >>> expected_path == expand_path('~/testing')
-    True
-    """
-
-    return os.path.abspath(os.path.expandvars(os.path.expanduser(path)))
-
-
-def is_file(path):
-    """
-    Returns boolean of whether or not argument is a path
-
-    Returns False if path does not exist:
-    >>> is_file("/this/path/probably/is/not/on/anyones/system")
-    False
-
-    Returns False if the path is a directory:
-    >>> is_file(os.path.dirname(__file__))
-    False
-    
-    Returns True if the path is a file:
-    >>> is_file(__file__)
-    True
-    """
-
-    if not path:
-        return False
-    if not os.path.isfile(path):
-        return False
-    return True
-
 def arg_is_file(path):
     """
     Returns expanded path if its a file; returns argparse error otherwise
@@ -162,4 +290,3 @@ def main_cli(argv = sys.argv):
 
 if __name__ == "__main__":
     main_cli()
-
