@@ -278,6 +278,7 @@ class PosteriorSampleDataError(SumDivTimesError):
         SumDivTimesError.__init__(self, *args, **kwargs)
 
 
+
 class PosteriorSample(object):
     """
     This is the main container for the samples of divergence times from a
@@ -315,6 +316,7 @@ class PosteriorSample(object):
     """
 
     count = 0
+
     def __init__(self, *args, **kwargs):
         self.__class__.count += 1
         self.name = kwargs.pop('name',
@@ -334,6 +336,16 @@ class PosteriorSample(object):
         if len(kwargs) > 0:
             _LOG.warning("Unexpected attributes in posterior sample {0!r}: "
                     "{1}".format(self.name, ", ".join(kwargs.keys())))
+        self.processed = False
+
+    def process_trees(self):
+        if self.processed:
+            return
+        for p in self.paths:
+            with OpenFile(p) as tree_stream:
+        # taxon_namespace = dendropy.TaxonNamespace()
+        # tree_list = dendropy.TreeList()
+        # tree_list.read(
 
 
 class TipSubset(object):
