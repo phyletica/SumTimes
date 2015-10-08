@@ -12,6 +12,10 @@ import io
 import gzip
 import tempfile
 import argparse
+import logging
+
+logging.basicConfig(level=logging.INFO)
+_LOG = logging.getLogger(os.path.basename(__file__))
 
 _program_info = {
     'name': os.path.basename(__file__),
@@ -258,6 +262,148 @@ class ConditionEvaluator(object):
     def evaluate(self, d):
         return eval(self.expression)
 
+
+class SumDivTimesError(Exception):
+    def __init__(self, *args, **kwargs):
+        Exception.__init__(self, *args, **kwargs)
+
+
+class TipSubsetDataError(SumDivTimesError):
+    def __init__(self, *args, **kwargs):
+        SumDivTimesError.__init__(self, *args, **kwargs)
+
+
+class PosteriorSampleDataError(SumDivTimesError):
+    def __init__(self, *args, **kwargs):
+        SumDivTimesError.__init__(self, *args, **kwargs)
+
+
+class PosteriorSample(object):
+    """
+    This is the main container for the samples of divergence times from a
+    posterior of phylogenies.
+
+    An instance of this class should be initiated with parameters parsed from a
+    ``posterior`` within the YAML config file. The parameters must include the
+    following key-value pairs:
+
+    -   paths : A list of strings that specify paths to tree files.
+    -   tip_subsets : A list of sets of key-value pairs that will each initiate
+        a ``TipSubset`` instance.
+
+    and optionally:
+
+    -   name : A string.
+    -   burnin : An integer.
+    -   schema : A string specifying the format of the tree files (default:
+        'nexus').
+
+    An example of initiating an instance:
+    >>> d = {'paths': ['test-data/trees/test.trees.gz'],
+    ...      'tip_subsets': [{
+    ...             'name': 'bufo',
+    ...             'tips': ['Bnebulifer', 'Bamericanus']}]}
+    >>> ps = PosteriorSample(**d)
+    >>> len(ps.paths) == 1
+    True
+    >>> ps.paths == (expand_path(d['paths'][0]),)
+    True
+    >>> len(ps.tip_subsets) == 1
+    True
+    >>> ps.tip_subsets[0].name == 'bufo'
+    True
+    """
+
+    count = 0
+    def __init__(self, *args, **kwargs):
+        self.__class__.count += 1
+        self.name = kwargs.pop('name',
+                self.__class__.__name__ + '-' + str(self.count))
+        paths = kwargs.pop('paths', None)
+        if not paths:
+            raise PosteriorSampleDataError("A posterior sample must contain a "
+                    "list of 'paths'")
+        self.paths = tuple(expand_path(p) for p in paths)
+        tip_subsets = kwargs.pop('tip_subsets', None)
+        if not tip_subsets:
+            raise PosteriorSampleDataError("A posterior sample must contain a "
+                    "list of 'tip_subsets'")
+        self.tip_subsets = [TipSubset(**d) for d in tip_subsets]
+        self.burnin = int(kwargs.pop('burnin', 0))
+        self.schema = kwargs.pop('schema', 'nexus')
+        if len(kwargs) > 0:
+            _LOG.warning("Unexpected attributes in posterior sample {0!r}: "
+                    "{1}".format(self.name, ", ".join(kwargs.keys())))
+
+
+class TipSubset(object):
+    """
+    A subset of tips on trees from a posterior sample.
+
+    An instance of this class should be initiated with parameters parsed from
+    the items of a ``tip_subsets`` list within the YAML config file. The
+    parameters must include the following key-value pairs:
+    
+    -   name : A string.
+    -   tips : A list of strings that represent tip labels.
+
+    and optionally:
+
+    -   stem_based : A boolean (default ``False``).
+
+    An example of initiating a TipSubset object:
+    >>> d = {'name': 'bufo', 'tips': ['Bnebulifer', 'Bamericanus']}
+    >>> ts = TipSubset(**d)
+    >>> ts.name == d['name']
+    True
+    >>> ts.tips == tuple(t for t in d['tips'])
+    True
+    >>> ts.stem_based
+    False
+
+    'stem_based' keyword can also be passed:
+    >>> d = {'name': 'bufo', 'tips': ['Bnebulifer', 'Bamericanus'], 'stem_based': True}
+    >>> ts = TipSubset(**d)
+    >>> ts.name == d['name']
+    True
+    >>> ts.tips == tuple(t for t in d['tips'])
+    True
+    >>> ts.stem_based
+    True
+
+    If 'name' or 'tips' is missing a TipSubsetDataError is raised:
+    >>> d = {'tips': ['Bnebulifer', 'Bamericanus']}
+    >>> ts = TipSubset(**d) #doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    TipSubsetDataError: ...
+
+    >>> d = {'name': 'bufo'}
+    >>> ts = TipSubset(**d) #doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    TipSubsetDataError: ...
+
+    If any extra keywords are passed, a warning is given:
+    >>> d = {'name': 'bufo', 'tips': ['Bnebulifer', 'Bamericanus'], 'extra': True}
+    >>> ts = TipSubset(**d) #doctest: +ELLIPSIS
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.name = kwargs.pop('name', None)
+        if not self.name:
+            raise TipSubsetDataError("A tip subset must contain a 'name' "
+                    "attribute")
+        try:
+            tips = list(kwargs.pop('tips', None))
+        except:
+            raise TipSubsetDataError("A tip subset must contain a list of "
+                    "'tips'")
+        self.tips = tuple(t for t in tips)
+        self.stem_based = kwargs.pop('stem_based', False)
+        if len(kwargs) > 0:
+            _LOG.warning("Unexpected attributes in tip subset {0!r}: "
+                    "{1}".format(self.name, ", ".join(kwargs.keys())))
 
 def arg_is_file(path):
     """
