@@ -1,0 +1,7 @@
+*.swp
+*.pyc
+.DS_Store
+*.egg-info
+build
+setuptools*.egg
+setuptools*.zip
