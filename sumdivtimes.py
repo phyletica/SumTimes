@@ -9,8 +9,10 @@ import sys
 import os
 import re
 import io
+import time
 import collections
 import gzip
+import traceback
 import tempfile
 import argparse
 import logging
@@ -18,7 +20,14 @@ try:
     import queue
 except ImportError:
     import Queue as queue
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
 import multiprocessing
+
+import yaml
+import dendropy
 
 logging.basicConfig(level=logging.INFO)
 _LOG = logging.getLogger(os.path.basename(__file__))
@@ -32,6 +41,29 @@ _program_info = {
     'copyright': 'Copyright (C) 2015 Jamie Oaks',
     'license': 'GNU GPL version 3 or later',}
 
+
+def list_splitter(l, n, by_size=False):
+    """
+    Returns generator that yields list `l` as `n` sublists, or as `n`-sized
+    sublists if `by_size` is True.
+    """
+    if n < 1:
+        raise StopIteration
+    elif by_size:
+        for i in range(0, len(l), n):
+            yield l[i:i+n]
+    else:
+        if n > len(l):
+            n = len(l)
+        step_size = len(l)/int(n)
+        if step_size < 1:
+            step_size = 1
+        # for i in range(0, len(l), step_size):
+        #     yield l[i:i+step_size]
+        i = -step_size
+        for i in range(0, ((n-1)*step_size), step_size):
+            yield l[i:i+step_size]
+        yield l[i+step_size:]
 
 def expand_path(path):
     """
@@ -158,10 +190,11 @@ class ReadFile(object):
         self.gzipped = is_gzipped(self.path)
         self.encoding = 'utf-8'
         if self.gzipped:
-            self.file_stream = io.TextIOWrapper(
-                    buffer = gzip.GzipFile(filename = self.path,
-                            mode = 'rb'),
-                    encoding = self.encoding)
+            self.file_stream = gzip.GzipFile(filename = self.path, mode = 'rt')
+            # self.file_stream = io.TextIOWrapper(
+            #         buffer = gzip.GzipFile(filename = self.path,
+            #                 mode = 'rb'),
+            #         encoding = self.encoding)
         else:
             self.file_stream = io.open(self.path, mode = 'r',
                     encoding = self.encoding)
@@ -169,7 +202,7 @@ class ReadFile(object):
 
     def close(self):
         self.file_stream.close()
-        self.__class__.open_files.remove(self.name)
+        self.__class__.open_files.remove(self.path)
 
     def __enter__(self):
         return self.file_stream
@@ -284,18 +317,72 @@ class PosteriorSampleDataError(SumDivTimesError):
     def __init__(self, *args, **kwargs):
         SumDivTimesError.__init__(self, *args, **kwargs)
 
+class YamlConfigFormattingError(SumDivTimesError):
+    def __init__(self, *args, **kwargs):
+        SumDivTimesError.__init__(self, *args, **kwargs)
 
-class PosteriorManager(object):
+
+class AnalysisManager(object):
     """
-    Contains all PosteriorSamples, runs their workers and gets results
-    back where they need to go
+    Container for all posterior samples found in the YAML config file.
+    
+    An instance is initiated with a list of ``posterior``s parsed from
+    the YAML config file.
     """
-    pass
+
+    def __init__(self, config_path, num_processors):
+        posterior_samples = []
+        with ReadFile(config_path) as yaml_stream:
+            config = yaml.load(yaml_stream)
+        for setting_dict in config:
+            if len(setting_dict) > 1:
+                raise YamlConfigFormattingError(
+                        "Top level keys must be either 'posterior' or "
+                        "'expression'; found: {0} ".format(", ".join(
+                                setting_dict.keys())))
+            key = list(setting_dict.keys())[0]
+            if key.lower() == 'posterior':
+                posterior_samples.append(PosteriorSample(
+                        config_path = config_path,
+                        **setting_dict[key]))
+            elif key.lower() == 'expression':
+                pass
+            else:
+                raise YamlConfigFormattingError(
+                        "Top level keys must be either 'posterior' or "
+                        "'expression'; found: {0} ".format(key))
+        self.posterior_sample_map = collections.OrderedDict(zip(
+                [ps.name for ps in posterior_samples],
+                posterior_samples))
+        self.num_processors = int(num_processors)
+
+    def _get_posterior_samples(self):
+        return self.posterior_sample_map.values()
+
+    posterior_samples = property(_get_posterior_samples)
+
+    def _get_node_age_extractors(self):
+        workers = []
+        for ps in self.posterior_samples:
+            workers.extend(ps.get_workers())
+        return workers
+
+    def _extract_node_ages(self):
+        workers = self._get_node_age_extractors()
+        np = min((self.num_processors, len(workers)))
+        workers = JobManager.run_workers(workers, np)
+        for worker in workers:
+            for tip_subset_name, node_ages in worker.node_ages.items():
+                self.posterior_sample_map[worker.label].tip_subset_map[
+                        tip_subset_name].node_ages = node_ages
+
+    def run_analysis(self):
+        self._extract_node_ages()
 
 
 class PosteriorSample(object):
     """
-    This is the main container for the samples of divergence times from a
+    This is the main container for the samples of node ages from a
     posterior of phylogenies.
 
     An instance of this class should be initiated with parameters parsed from a
@@ -310,7 +397,6 @@ class PosteriorSample(object):
 
     and optionally:
 
-    -   name : A string.
     -   burnin : An integer.
 
     An example of initiating an instance:
@@ -330,27 +416,26 @@ class PosteriorSample(object):
     """
 
     count = 0
-    def __init__(self, *args, **kwargs):
+
+    def __init__(self, config_path, **kwargs):
         self.__class__.count += 1
-        self.name = kwargs.pop('name',
-                self.__class__.__name__ + '-' + str(self.count))
+        self.config_path = config_path
+        self.name = self.__class__.__name__ + '-' + str(self.count)
         paths = kwargs.pop('paths', None)
         if not paths:
             raise PosteriorSampleDataError("A posterior sample must contain a "
                     "list of 'paths'")
-        self.paths = tuple(p for p in paths)
-        self.schema = kwargs.pop('schema', None)
-        if not schema:
-            raise PosteriorSampleDataError("A posterior sample must specify "
-                    "the 'schema' of the tree files")
+        self.paths = tuple(expand_path(os.path.join(os.path.dirname(
+                config_path), p)) for p in paths)
         tip_subsets = kwargs.pop('tip_subsets', None)
         if not tip_subsets:
             raise PosteriorSampleDataError("A posterior sample must contain a "
                     "list of 'tip_subsets'")
         tip_subset_list = [TipSubset(**d) for d in tip_subsets]
         self.tip_subset_map = collections.OrderedDict(zip(
-                [id(ts) for ts in tip_subset_list],
+                [ts.name for ts in tip_subset_list],
                 tip_subset_list))
+        self.schema = kwargs.pop('schema', 'nexus')
         self.burnin = int(kwargs.pop('burnin', 0))
         if len(kwargs) > 0:
             _LOG.warning("Unexpected attributes in posterior sample {0!r}: "
@@ -361,11 +446,22 @@ class PosteriorSample(object):
 
     tip_subsets = property(_get_tip_subsets)
 
+    def get_workers(self):
+        workers = []
+        for path in self.paths:
+            w = PosteriorWorker(path = path,
+                    schema = self.schema,
+                    burnin = self.burnin,
+                    tip_subsets = self.tip_subsets,
+                    label = self.name)
+            workers.append(w)
+        return workers
+
 
 class PosteriorWorker(object):
     """
     These instances are assigned a single posterior tree file from which to
-    extract divergence times
+    extract node ages.
     """
 
     count = 0
@@ -378,15 +474,15 @@ class PosteriorWorker(object):
         self.tip_subsets = tip_subsets
         self.label = label
         self.finished = False
-        self.div_times = dict(zip(
-                [id(ts) for ts in self.tip_subsets],
+        self.node_ages = dict(zip(
+                [ts.name for ts in self.tip_subsets],
                 [[] for i in range(len(self.tip_subsets))]))
         self.error = None
         self.trace_back = None
 
-    def extract_div_times(self):
+    def start(self):
         try:
-            return self._extract_div_times()
+            return self._extract_node_ages()
         except Exception as e:
             self.error = e
             f = StringIO()
@@ -394,17 +490,15 @@ class PosteriorWorker(object):
             self.trace_back = f.getvalue()
 
 
-    def _extract_div_times(self):
+    def _extract_node_ages(self):
         with ReadFile(self.path) as tree_stream:
-            kwargs = {}
-            if self.schema.lower() == 'nexus':
-                kwargs['preserve_underscores'] = True
             tree_iter = dendropy.Tree.yield_from_files(
                     files = [tree_stream],
                     schema = self.schema,
-                    tree_offset = self.burnin,
                     preserve_underscores = True)
             for tree_idx, tree in enumerate(tree_iter):
+                if tree_idx < self.burnin:
+                    continue
                 if not tree.is_rooted:
                     raise Exception('Tree {0} in {1!r} is not rooted'.format(
                             i + 1,
@@ -414,7 +508,7 @@ class PosteriorWorker(object):
                     target_node = mrca_node
                     if target_node.parent_node and tip_subset.stem_based:
                         target_node = mrca_node.parent_node
-                    self.div_times[id(tip_subset)].append((
+                    self.node_ages[tip_subset.name].append((
                             id(target_node),
                             target_node.age))
 
@@ -479,8 +573,10 @@ class JobManager(multiprocessing.Process):
             # was not empty, and without timeout, the processes would
             # hang waiting for jobs.
         except queue.Empty:
+            print("\n\n\nHERE!!\n\n\n")
             time.sleep(0.2)
             if not self.work_queue.empty():
+                print("\n\n\nBAD!!\n\n\n")
                 self.send_warning('raised queue.Empty, but queue is '
                         'not empty... trying again')
                 return self._get_worker()
@@ -495,7 +591,7 @@ class JobManager(multiprocessing.Process):
             self.result_queue.put(worker, block=True, timeout=self.put_timeout)
             self.send_debug('worker {0} returned'.format(
                     getattr(worker, 'name', 'nameless')))
-        except queue.Full, e:
+        except queue.Full as e:
             time.sleep(0.2)
             if not self.result_queue.full():
                 self.send_warning('raised queue.Full, but queue is '
@@ -514,7 +610,7 @@ class JobManager(multiprocessing.Process):
                 break
             self.send_info('starting worker {0}'.format(
                     getattr(worker, 'name', 'nameless')))
-            worker.extract_div_times()
+            worker.start()
             self.send_info('worker {0} finished'.format(
                     getattr(worker, 'name', 'nameless')))
             self._put_worker(worker)
@@ -618,12 +714,20 @@ class TipSubset(object):
     >>> d = {'name': 'bufo', 'tips': ['Bnebulifer', 'Bamericanus'], 'extra': True}
     >>> ts = TipSubset(**d) #doctest: +ELLIPSIS
     """
+    
+    count = 0
+    registered_names = set()
 
     def __init__(self, *args, **kwargs):
-        self.name = kwargs.pop('name', None)
-        if not self.name:
+        self.__class__.count += 1
+        name = kwargs.pop('name', None)
+        if not name:
             raise TipSubsetDataError("A tip subset must contain a 'name' "
                     "attribute")
+        if name in self.registered_names:
+            raise TipSubsetDataError("All tip subset names must be unique")
+        self.__class__.registered_names.add(name)
+        self.name = name
         try:
             tips = list(kwargs.pop('tips', None))
         except:
@@ -634,6 +738,7 @@ class TipSubset(object):
         if len(kwargs) > 0:
             _LOG.warning("Unexpected attributes in tip subset {0!r}: "
                     "{1}".format(self.name, ", ".join(kwargs.keys())))
+        self.node_ages = None
 
 def arg_is_file(path):
     """
@@ -657,6 +762,15 @@ def arg_is_file(path):
         raise argparse.ArgumentTypeError(msg)
     return expand_path(path)
 
+def arg_is_positive_int(i):
+    try:
+        if int(i) < 1:
+            raise
+    except:
+        msg = '{0!r} is not a positive integer'.format(i)
+        raise argparse.ArgumentTypeError(msg)
+    return int(i)
+
 
 def main_cli(argv = sys.argv):
     description = '{name} {version}'.format(**_program_info)
@@ -666,6 +780,13 @@ def main_cli(argv = sys.argv):
             metavar = 'YAML-CONFIG-PATH',
             type = arg_is_file,
             help = ('Path to the YAML-formatted config file.'))
+    parser.add_argument('--np',
+            action = 'store',
+            type = arg_is_positive_int,
+            default = multiprocessing.cpu_count(),
+            help = ('The maximum number of processes to run in parallel. The '
+                    'default is the smaller of the number of tree files or the '
+                    'number of CPUs available on the machine.'))
     parser.add_argument('--run-tests',
             action = 'store_true',
             help = 'Ignore all other options and run test suite.')
@@ -678,6 +799,10 @@ def main_cli(argv = sys.argv):
     if args.run_tests:
         import doctest
         doctest.testmod(verbose = True)
+
+    analysis = AnalysisManager(config_path = args.config_path,
+            num_processors = args.np)
+    analysis.run_analysis()
 
 if __name__ == "__main__":
     main_cli()
