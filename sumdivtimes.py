@@ -190,7 +190,10 @@ class ReadFile(object):
         self.gzipped = is_gzipped(self.path)
         self.encoding = 'utf-8'
         if self.gzipped:
-            self.file_stream = gzip.GzipFile(filename = self.path, mode = 'rt')
+            try:
+                self.file_stream = gzip.GzipFile(filename = self.path, mode = 'rt')
+            except ValueError:
+                self.file_stream = gzip.GzipFile(filename = self.path, mode = 'r')
             # self.file_stream = io.TextIOWrapper(
             #         buffer = gzip.GzipFile(filename = self.path,
             #                 mode = 'rb'),
@@ -503,6 +506,7 @@ class PosteriorWorker(object):
                     raise Exception('Tree {0} in {1!r} is not rooted'.format(
                             i + 1,
                             self.path))
+                tree.calc_node_ages()
                 for tip_subset in self.tip_subsets:
                     mrca_node = tree.mrca(taxon_labels = tip_subset.tips)
                     target_node = mrca_node
@@ -573,10 +577,8 @@ class JobManager(multiprocessing.Process):
             # was not empty, and without timeout, the processes would
             # hang waiting for jobs.
         except queue.Empty:
-            print("\n\n\nHERE!!\n\n\n")
             time.sleep(0.2)
             if not self.work_queue.empty():
-                print("\n\n\nBAD!!\n\n\n")
                 self.send_warning('raised queue.Empty, but queue is '
                         'not empty... trying again')
                 return self._get_worker()
