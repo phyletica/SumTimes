@@ -191,13 +191,10 @@ class ReadFile(object):
         self.encoding = 'utf-8'
         if self.gzipped:
             try:
-                self.file_stream = gzip.GzipFile(filename = self.path, mode = 'rt')
-            except ValueError:
-                self.file_stream = gzip.GzipFile(filename = self.path, mode = 'r')
-            # self.file_stream = io.TextIOWrapper(
-            #         buffer = gzip.GzipFile(filename = self.path,
-            #                 mode = 'rb'),
-            #         encoding = self.encoding)
+                self.file_stream = gzip.open(filename = self.path, mode = 'rt',
+                        encoding = self.encoding)
+            except (TypeError, ValueError):
+                self.file_stream = gzip.open(filename = self.path, mode = 'r')
         else:
             self.file_stream = io.open(self.path, mode = 'r',
                     encoding = self.encoding)
@@ -381,6 +378,10 @@ class AnalysisManager(object):
 
     def run_analysis(self):
         self._extract_node_ages()
+        ps = list(self.posterior_samples)[0]
+        ts = list(ps.tip_subsets)[0]
+        print(ts.name)
+        print(ts.node_ages)
 
 
 class PosteriorSample(object):
@@ -455,7 +456,7 @@ class PosteriorSample(object):
             w = PosteriorWorker(path = path,
                     schema = self.schema,
                     burnin = self.burnin,
-                    tip_subsets = self.tip_subsets,
+                    tip_subsets = list(self.tip_subsets),
                     label = self.name)
             workers.append(w)
         return workers
@@ -474,12 +475,15 @@ class PosteriorWorker(object):
         self.path = path
         self.schema = schema
         self.burnin = burnin
-        self.tip_subsets = tip_subsets
         self.label = label
         self.finished = False
         self.node_ages = dict(zip(
-                [ts.name for ts in self.tip_subsets],
-                [[] for i in range(len(self.tip_subsets))]))
+                [ts.name for ts in tip_subsets],
+                [[] for i in range(len(tip_subsets))]))
+        self.tip_subsets = zip(
+                [ts.name for ts in tip_subsets],
+                [ts.tips for ts in tip_subsets],
+                [ts.stem_based for ts in tip_subsets])
         self.error = None
         self.trace_back = None
 
@@ -507,12 +511,12 @@ class PosteriorWorker(object):
                             i + 1,
                             self.path))
                 tree.calc_node_ages()
-                for tip_subset in self.tip_subsets:
-                    mrca_node = tree.mrca(taxon_labels = tip_subset.tips)
+                for name, tips, stem_based in self.tip_subsets:
+                    mrca_node = tree.mrca(taxon_labels = tips)
                     target_node = mrca_node
-                    if target_node.parent_node and tip_subset.stem_based:
+                    if target_node.parent_node and stem_based:
                         target_node = mrca_node.parent_node
-                    self.node_ages[tip_subset.name].append((
+                    self.node_ages[name].append((
                             id(target_node),
                             target_node.age))
 
