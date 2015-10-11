@@ -374,14 +374,15 @@ class AnalysisManager(object):
         for worker in workers:
             for tip_subset_name, node_ages in worker.node_ages.items():
                 self.posterior_sample_map[worker.label].tip_subset_map[
-                        tip_subset_name].node_ages = node_ages
+                        tip_subset_name].node_ages.extend(node_ages)
 
     def run_analysis(self):
         self._extract_node_ages()
-        ps = list(self.posterior_samples)[0]
-        ts = list(ps.tip_subsets)[0]
+        ps = list(self.posterior_samples)[1]
+        ts = ps.tip_subset_map['mindorensis']
         print(ts.name)
-        print(ts.node_ages)
+        print(len(ts.node_ages))
+        print(sorted(age for i, age in ts.node_ages))
 
 
 class PosteriorSample(object):
@@ -477,13 +478,8 @@ class PosteriorWorker(object):
         self.burnin = burnin
         self.label = label
         self.finished = False
-        self.node_ages = dict(zip(
-                [ts.name for ts in tip_subsets],
-                [[] for i in range(len(tip_subsets))]))
-        self.tip_subsets = zip(
-                [ts.name for ts in tip_subsets],
-                [ts.tips for ts in tip_subsets],
-                [ts.stem_based for ts in tip_subsets])
+        self.node_ages = dict((ts.name, []) for ts in tip_subsets)
+        self.tip_subsets = [(ts.name, ts.tips, ts.stem_based) for ts in tip_subsets]
         self.error = None
         self.trace_back = None
 
@@ -744,7 +740,7 @@ class TipSubset(object):
         if len(kwargs) > 0:
             _LOG.warning("Unexpected attributes in tip subset {0!r}: "
                     "{1}".format(self.name, ", ".join(kwargs.keys())))
-        self.node_ages = None
+        self.node_ages = []
 
 def arg_is_file(path):
     """
