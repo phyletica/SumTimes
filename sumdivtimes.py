@@ -16,6 +16,7 @@ import traceback
 import tempfile
 import argparse
 import logging
+import unittest
 try:
     import queue
 except ImportError:
@@ -25,9 +26,6 @@ try:
 except ImportError:
     from io import StringIO
 import multiprocessing
-
-import yaml
-import dendropy
 
 logging.basicConfig(level=logging.INFO)
 _LOG = logging.getLogger(os.path.basename(__file__))
@@ -42,10 +40,75 @@ _program_info = {
     'license': 'GNU GPL version 3 or later',}
 
 
+try:
+    import yaml
+except ImportError:
+    _LOG.error("""
+Could not import yaml. The package 'pyyaml' is required for {0}.
+Please try to install on the command line using:
+
+    sudo pip install pyyaml
+
+If you do not have admin privileges you can install via:
+
+    pip install --user pyyaml
+""".format(_program_info['name']))
+    sys.exit(1)
+
+try:
+    import dendropy
+except ImportError:
+    _LOG.error("""
+Could not import dendropy. The package 'dendropy' is required for {0}.
+Please try to install on the command line using:
+
+    sudo pip install dendropy
+
+If you do not have admin privileges you can install via:
+
+    pip install --user dendropy
+""".format(_program_info['name']))
+    sys.exit(1)
+
+
 def list_splitter(l, n, by_size=False):
     """
     Returns generator that yields list `l` as `n` sublists, or as `n`-sized
     sublists if `by_size` is True.
+
+    >>> import types
+    >>> ret = list_splitter([1,2,3,4,5,6,7], 2)
+    >>> isinstance(ret, types.GeneratorType)
+    True
+    >>> ret = list(ret)
+    >>> len(ret) == 2
+    True
+    >>> isinstance(ret[0], list)
+    True
+    >>> isinstance(ret[1], list)
+    True
+    >>> ret[0] == [1,2,3] 
+    True
+
+    When ``by_size = False`` and length of input list is not multiple of ``n``,
+    extra elements are in the last list.
+    >>> ret[1] == [4,5,6,7]
+    True
+
+    >>> ret = list_splitter([1,2,3,4,5,6,7], 2, by_size = True)
+    >>> isinstance(ret, types.GeneratorType)
+    True
+    >>> ret = list(ret)
+    >>> len(ret) == 4
+    True
+    >>> isinstance(ret[0], list)
+    True
+    >>> ret[0] == [1,2] 
+    True
+    >>> ret[1] == [3,4] 
+    True
+    >>> ret[3] == [7] 
+    True
     """
     if n < 1:
         raise StopIteration
@@ -55,15 +118,14 @@ def list_splitter(l, n, by_size=False):
     else:
         if n > len(l):
             n = len(l)
-        step_size = len(l)/int(n)
+        step_size = len(l)//int(n)
         if step_size < 1:
             step_size = 1
-        # for i in range(0, len(l), step_size):
-        #     yield l[i:i+step_size]
         i = -step_size
         for i in range(0, ((n-1)*step_size), step_size):
             yield l[i:i+step_size]
         yield l[i+step_size:]
+
 
 def expand_path(path):
     """
@@ -391,32 +453,37 @@ class PosteriorSample(object):
     posterior of phylogenies.
 
     An instance of this class should be initiated with parameters parsed from a
-    ``posterior`` within the YAML config file. The parameters must include the
-    following key-value pairs:
+    ``posterior`` within the YAML config file. One positional argument is also
+    required:
 
-    -   paths : A list of strings that specify paths to tree files.
-    -   schema : A string specifying the format of the tree files (default:
-        'nexus').
+    -   config_path : A string of the path to the YAML config file.
+    
+    The parameters must include the following key-value pairs:
+
+    -   paths : A list of strings that specify paths to tree files (relative to
+        the config path).
     -   tip_subsets : A list of sets of key-value pairs that will each initiate
         a ``TipSubset`` instance.
 
     and optionally:
 
     -   burnin : An integer.
+    -   schema : A string specifying the format of the tree files (default:
+        'nexus').
 
     An example of initiating an instance:
-    >>> d = {'paths': ['test-data/trees/test.trees.gz'],
+    >>> d = {'paths': ['trees/test.trees.gz'],
     ...      'tip_subsets': [{
     ...             'name': 'bufo',
     ...             'tips': ['Bnebulifer', 'Bamericanus']}]}
-    >>> ps = PosteriorSample(**d)
+    >>> ps = PosteriorSample('test-data/config.yml', **d)
     >>> len(ps.paths) == 1
     True
-    >>> ps.paths == (d['paths'][0],)
+    >>> ps.paths == (os.path.abspath('test-data/trees/test.trees.gz'),)
     True
     >>> len(ps.tip_subsets) == 1
     True
-    >>> ps.tip_subsets[0].name == 'bufo'
+    >>> list(ps.tip_subsets)[0].name == 'bufo'
     True
     """
 
@@ -467,6 +534,33 @@ class PosteriorWorker(object):
     """
     These instances are assigned a single posterior tree file from which to
     extract node ages.
+
+    Instances should be created via the ``get_workers`` method of the
+    ``PosteriorSample`` class
+
+    >>> d = {'paths': ['trees/test.trees.gz'],
+    ...      'tip_subsets': [{
+    ...             'name': 'toads',
+    ...             'tips': ['Bnebulifer', 'Bamericanus']}]}
+    >>> ps = PosteriorSample('test-data/config.yml', **d)
+    >>> workers = ps.get_workers()
+    >>> len(workers) == 1
+    True
+    >>> w = workers[0]
+    >>> w.path == os.path.abspath('test-data/trees/test.trees.gz')
+    True
+    >>> w.burnin == 0
+    True
+    >>> w.schema == 'nexus'
+    True
+    >>> w.label == ps.name
+    True
+    >>> w.finished == False
+    True
+    >>> w.node_ages == {'toads': []}
+    True
+    >>> w.tip_subsets == [('toads', ('Bnebulifer', 'Bamericanus'), False)]
+    True
     """
 
     count = 0
@@ -680,7 +774,7 @@ class TipSubset(object):
     -   stem_based : A boolean (default ``False``).
 
     An example of initiating a TipSubset object:
-    >>> d = {'name': 'bufo', 'tips': ['Bnebulifer', 'Bamericanus']}
+    >>> d = {'name': 'buf', 'tips': ['Bnebulifer', 'Bamericanus']}
     >>> ts = TipSubset(**d)
     >>> ts.name == d['name']
     True
@@ -690,7 +784,7 @@ class TipSubset(object):
     False
 
     'stem_based' keyword can also be passed:
-    >>> d = {'name': 'bufo', 'tips': ['Bnebulifer', 'Bamericanus'], 'stem_based': True}
+    >>> d = {'name': 'buf2', 'tips': ['Bnebulifer', 'Bamericanus'], 'stem_based': True}
     >>> ts = TipSubset(**d)
     >>> ts.name == d['name']
     True
@@ -712,8 +806,15 @@ class TipSubset(object):
         ...
     TipSubsetDataError: ...
 
+    Every instance must have a unique name:
+    >>> d = {'name': 'buf', 'tips': ['Bnebulifer', 'Bamericanus'], 'extra': True}
+    >>> ts = TipSubset(**d) #doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    TipSubsetDataError: All tip subset names must be unique
+
     If any extra keywords are passed, a warning is given:
-    >>> d = {'name': 'bufo', 'tips': ['Bnebulifer', 'Bamericanus'], 'extra': True}
+    >>> d = {'name': 'buf3', 'tips': ['Bnebulifer', 'Bamericanus'], 'extra': True}
     >>> ts = TipSubset(**d) #doctest: +ELLIPSIS
     """
     
@@ -744,7 +845,8 @@ class TipSubset(object):
 
 def arg_is_file(path):
     """
-    Returns expanded path if its a file; returns argparse error otherwise
+    Returns expanded path if argument is a file; returns argparse error
+    otherwise.
 
     >>> expected_path = os.path.abspath(__file__)
     >>> expected_path == arg_is_file(__file__)
@@ -765,6 +867,19 @@ def arg_is_file(path):
     return expand_path(path)
 
 def arg_is_positive_int(i):
+    """
+    Returns int if argument is a positive integer; returns argparse error
+    otherwise.
+
+    >>> arg_is_positive_int(1) == 1
+    True
+
+    >>> arg_is_positive_int(-1) #doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    argparse.ArgumentTypeError: ...
+    """
+
     try:
         if int(i) < 1:
             raise
@@ -789,22 +904,52 @@ def main_cli(argv = sys.argv):
             help = ('The maximum number of processes to run in parallel. The '
                     'default is the smaller of the number of tree files or the '
                     'number of CPUs available on the machine.'))
-    parser.add_argument('--run-tests',
-            action = 'store_true',
-            help = 'Ignore all other options and run test suite.')
 
     if argv == sys.argv:
         args = parser.parse_args()
     else:
         args = parser.parse_args(argv)
 
-    if args.run_tests:
-        import doctest
-        doctest.testmod(verbose = True)
-
     analysis = AnalysisManager(config_path = args.config_path,
             num_processors = args.np)
     analysis.run_analysis()
 
+class PackagePaths(object):
+    SCRIPT_PATH = os.path.abspath(__file__)
+    BASE_DIR = os.path.abspath(os.path.dirname(SCRIPT_PATH))
+    TEST_DATA_DIR = os.path.join(BASE_DIR, "test-data")
+
+    @classmethod
+    def data_path(cls, filename=""):
+        return os.path.join(cls.TEST_DATA_DIR, filename)
+    
+    @classmethod
+    def script_path(cls):
+        return cls.SCRIPT_PATH
+    
+class IsFileTestCase(unittest.TestCase):
+    def setUp(self):
+        self.path = PackagePaths.data_path('config.yml')
+        self.bogus_path = PackagePaths.data_path("bogusdatafilename")
+    
+    def test_is_file(self):
+        self.assertFalse(is_file(None))
+        self.assertFalse(is_file(self.bogus_path))
+        self.assertTrue(is_file(self.path))
+
 if __name__ == "__main__":
+    if "--run-tests" in sys.argv:
+        import doctest
+
+        suite = unittest.TestSuite()
+        suite.addTest(doctest.DocTestSuite())
+
+        tests = unittest.defaultTestLoader.loadTestsFromName(os.path.splitext(__file__)[0])
+        suite.addTests(tests)
+
+        runner = unittest.TextTestRunner(verbosity = 2)
+        runner.run(suite)
+
+        sys.exit(0)
+
     main_cli()
