@@ -71,7 +71,7 @@
 
         - name: kikuchii 
           tips: [mi3]
-          stem_based: False
+          stem_based: True
 
         - name: negros-panay
           tips: [mi8, mi9]

@@ -34,7 +34,7 @@ _LOCK = multiprocessing.Lock()
 _program_info = {
     'name': os.path.basename(__file__),
     'author': 'Jamie Oaks',
-    'version': 'Version 0.1',
+    'version': '0.1.0',
     'description': __doc__,
     'copyright': 'Copyright (C) 2015 Jamie Oaks',
     'license': 'GNU GPL version 3 or later',}
@@ -179,8 +179,8 @@ def is_gzipped(file_path):
 
     Returns False for regular file with content:
     >>> f = io.open(temp_path, mode = 'w', encoding='utf-8')
-    >>> f.write('testing...')
-    10
+    >>> f.write(u'testing...') #doctest: +ELLIPSIS
+    10...
     >>> f.close()
     >>> is_gzipped(temp_path)
     False
@@ -188,16 +188,16 @@ def is_gzipped(file_path):
 
     Returns False if gzipped file is empty:
     >>> fd, temp_path = tempfile.mkstemp()
-    >>> f = gzip.open(temp_path, mode = "wb", compresslevel = 9)
-    >>> f.write(bytes("", 'UTF-8'))
+    >>> f = gzip.open(temp_path, mode = "wt", compresslevel = 9)
+    >>> f.write("")
     0
     >>> f.close()
     >>> is_gzipped(temp_path)
     False
 
     Returns True if file has gzipped content:
-    >>> f = gzip.open(temp_path, mode = "wb", compresslevel = 9)
-    >>> f.write(bytes("testing...", 'UTF-8'))
+    >>> f = gzip.open(temp_path, mode = "wt", compresslevel = 9)
+    >>> f.write("testing...")
     10
     >>> f.close()
     >>> is_gzipped(temp_path)
@@ -851,11 +851,6 @@ def arg_is_file(path):
     >>> expected_path = os.path.abspath(__file__)
     >>> expected_path == arg_is_file(__file__)
     True
-
-    >>> arg_is_file("/this/path/probably/is/not/on/anyones/system") #doctest: +ELLIPSIS
-    Traceback (most recent call last):
-        ...
-    argparse.ArgumentTypeError: ...
     """
 
     try:
@@ -873,11 +868,6 @@ def arg_is_positive_int(i):
 
     >>> arg_is_positive_int(1) == 1
     True
-
-    >>> arg_is_positive_int(-1) #doctest: +ELLIPSIS
-    Traceback (most recent call last):
-        ...
-    argparse.ArgumentTypeError: ...
     """
 
     try:
@@ -890,7 +880,7 @@ def arg_is_positive_int(i):
 
 
 def main_cli(argv = sys.argv):
-    description = '{name} {version}'.format(**_program_info)
+    description = '{name} Version {version}'.format(**_program_info)
     parser = argparse.ArgumentParser(description = description)
 
     parser.add_argument('config_path',
@@ -914,33 +904,376 @@ def main_cli(argv = sys.argv):
             num_processors = args.np)
     analysis.run_analysis()
 
-class PackagePaths(object):
+    
+class SumDivTimesTestCase(unittest.TestCase):
     SCRIPT_PATH = os.path.abspath(__file__)
     BASE_DIR = os.path.abspath(os.path.dirname(SCRIPT_PATH))
     TEST_DATA_DIR = os.path.join(BASE_DIR, "test-data")
 
-    @classmethod
-    def data_path(cls, filename=""):
-        return os.path.join(cls.TEST_DATA_DIR, filename)
+    def data_path(self, filename=""):
+        return os.path.join(self.TEST_DATA_DIR, filename)
     
-    @classmethod
-    def script_path(cls):
-        return cls.SCRIPT_PATH
-    
-class IsFileTestCase(unittest.TestCase):
+    def script_path(self):
+        return self.SCRIPT_PATH
+
+class IsFileTestCase(SumDivTimesTestCase):
     def setUp(self):
-        self.path = PackagePaths.data_path('config.yml')
-        self.bogus_path = PackagePaths.data_path("bogusdatafilename")
+        self.path = self.data_path('config.yml')
+        self.bogus_path = self.data_path("bogusdatafilename")
     
     def test_is_file(self):
         self.assertFalse(is_file(None))
         self.assertFalse(is_file(self.bogus_path))
         self.assertTrue(is_file(self.path))
 
+class ArgIsFileTestCase(SumDivTimesTestCase):
+    def test_simple(self):
+        expected_path = os.path.abspath(__file__)
+        self.assertTrue(expected_path == arg_is_file(__file__))
+
+    def test_error(self):
+        self.assertRaises(argparse.ArgumentTypeError,
+                arg_is_file,
+                "/this/path/probably/is/not/on/anyones/system")
+
+class ArgIsPositiveIntTestCase(SumDivTimesTestCase):
+    def test_simple(self):
+        self.assertEqual(arg_is_positive_int(1), 1)
+
+    def test_error(self):
+        self.assertRaises(argparse.ArgumentTypeError,
+                arg_is_positive_int,
+                -1)
+
+class AnalysisManagerTestCase(SumDivTimesTestCase):
+    def setUp(self):
+        self.config_path = self.data_path('config.yml')
+        TipSubset.registered_names = set()
+        TipSubset.count = 0
+        PosteriorSample.count = 0
+
+    def test_init_simple(self):
+        analysis = AnalysisManager(
+                config_path = self.config_path,
+                num_processors = 2)
+        self.assertEqual(analysis.num_processors, 2)
+        self.assertEqual(len(analysis.posterior_samples), 2)
+
+        posterior = analysis.posterior_sample_map['PosteriorSample-1']
+        expected_paths = tuple(self.data_path(os.path.join('trees',
+                'crocs-{0}.trees.gz'.format(i))) for i in range(1, 5))
+        self.assertEqual(posterior.paths, expected_paths)
+        self.assertEqual(posterior.burnin, 10)
+        self.assertEqual(len(posterior.tip_subsets), 7)
+
+        ts = posterior.tip_subset_map['crocodylus']
+        self.assertEqual(ts.name, 'crocodylus')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 12)
+        self.assertEqual(ts.tips, tuple(['poro', 'palu', 'siam', 'acut',
+            'inte', 'rhom', 'more', 'nil1', 'nil2', 'john', 'nova', 'mind']))
+
+        ts = posterior.tip_subset_map['west_niloticus']
+        self.assertEqual(ts.name, 'west_niloticus')
+        self.assertTrue(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 1)
+        self.assertEqual(ts.tips, tuple(['nil2']))
+
+        ts = posterior.tip_subset_map['paleosuchus']
+        self.assertEqual(ts.name, 'paleosuchus')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['Ppal', 'Ptrig']))
+
+        ts = posterior.tip_subset_map['osteolaemus']
+        self.assertEqual(ts.name, 'osteolaemus')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['oste1', 'oste2']))
+
+        ts = posterior.tip_subset_map['gharials']
+        self.assertEqual(ts.name, 'gharials')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['Gav', 'Tom']))
+
+        ts = posterior.tip_subset_map['melanosuchus']
+        self.assertEqual(ts.name, 'melanosuchus')
+        self.assertTrue(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 1)
+        self.assertEqual(ts.tips, tuple(['Mnig']))
+
+        ts = posterior.tip_subset_map['alligator']
+        self.assertEqual(ts.name, 'alligator')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['Amis', 'Asin']))
+
+        posterior = analysis.posterior_sample_map['PosteriorSample-2']
+        expected_paths = tuple(self.data_path(os.path.join('trees',
+                'gekko-{0}.trees.gz'.format(i))) for i in range(1, 5))
+        self.assertEqual(posterior.paths, expected_paths)
+        self.assertEqual(posterior.burnin, 10)
+        self.assertEqual(len(posterior.tip_subsets), 4)
+
+        ts = posterior.tip_subset_map['mindorensis']
+        self.assertEqual(ts.name, 'mindorensis')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 15)
+        self.assertEqual(ts.tips, tuple(
+                'mi{0}'.format(i) for i in range(1, 16)))
+
+        ts = posterior.tip_subset_map['negros-panay']
+        self.assertEqual(ts.name, 'negros-panay')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['mi8', 'mi9']))
+
+        ts = posterior.tip_subset_map['mindoro-caluya']
+        self.assertEqual(ts.name, 'mindoro-caluya')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['mi14', 'mi15']))
+
+        ts = posterior.tip_subset_map['kikuchii']
+        self.assertEqual(ts.name, 'kikuchii')
+        self.assertTrue(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 1)
+        self.assertEqual(ts.tips, tuple(['mi3']))
+
+    def test_node_age_extraction(self):
+        expected_gharials = sorted([
+                24.110664117758816, 23.8698119130743,
+                17.525196673650544, 17.278507106852423,
+                29.289878591287646, 28.736445592848177,
+                22.73014866038517, 22.862970224653782,
+                ])
+        expected_melanosuchus = sorted([
+                13.711715908355902, 13.609008882171471,
+                11.853850104040147, 12.009572143207354,
+                12.554953862782313, 12.812054853892633,
+                14.721849319453726, 14.62532687808455,
+                ])
+        expected_paleosuchus = sorted([
+                11.754200065064312, 11.872802801034062,
+                8.50701081812682, 8.37934540330511,
+                9.96578859714118, 10.157718954265865,
+                9.592638399609369, 9.524296161442503,
+                ])
+        expected_west_niloticus = sorted([
+                7.386885895079755, 7.534701038569063,
+                6.269231032209964, 6.351588867999811,
+                8.880262231537047, 9.049091134769006,
+                5.980145075454821, 5.91632654653123,
+                ])
+        expected_alligator = sorted([
+                57.84415042497245, 57.398644613783794,
+                54.67453512303167, 55.22621447318503,
+                38.76479499095923, 39.274041596147335,
+                39.536140588112424, 40.32631221208484,
+                ])
+        expected_crocodylus = sorted([
+                13.82994415, 13.72342828,
+                12.243275177, 12.479067473,
+                8.57111211, 8.665404431,
+                11.224377229, 11.337633924
+                ])
+        expected_osteolaemus = sorted([
+                5.094794597113713, 5.2060168284681225,
+                6.6974853173279705, 6.610642417475237,
+                7.621088625461037, 7.715969598889821,
+                7.223120239867402, 7.0263267708481925,
+                ])
+        expected_kikuchii = sorted([
+                0.02721530343176, 0.0261044431547,
+                0.041167646421379996, 0.04907320501923,
+                0.146814958946, 0.11886249552520001,
+                0.1393305421926, 0.12840039221740002,
+                ])
+        expected_negros_panay = sorted([
+                1.265195722159, 1.4052596825099999,
+                0.80855471807, 0.88277607765,
+                1.6664470532750002, 1.8156460958379999,
+                1.462959885987, 1.491361934884,
+                ])
+        expected_mindoro_caluya = sorted([
+                0.3925895072452, 0.3258940306721,
+                0.2813710152072, 0.6968195707754,
+                0.43292023300669996, 0.6484198072188,
+                0.4317073941498, 0.4930305649664,
+                ])
+        expected_mindorensis = sorted([
+                5.42999295194, 5.59535942059,
+                10.11978724353, 8.99089000045,
+                10.55270053408, 11.16206126123,
+                6.51883087116, 7.25195430298,
+                ])
+
+        config_path = self.data_path('config-burnin98.yml')
+
+        analysis = AnalysisManager(
+                config_path = config_path,
+                num_processors = 2)
+        self.assertEqual(analysis.num_processors, 2)
+        self.assertEqual(len(analysis.posterior_samples), 2)
+
+        analysis._extract_node_ages()
+
+        posterior = analysis.posterior_sample_map['PosteriorSample-1']
+        expected_paths = tuple(self.data_path(os.path.join('trees',
+                'crocs-{0}.trees.gz'.format(i))) for i in range(1, 5))
+        self.assertEqual(posterior.paths, expected_paths)
+        self.assertEqual(posterior.burnin, 98)
+        self.assertEqual(len(posterior.tip_subsets), 7)
+
+        ts = posterior.tip_subset_map['crocodylus']
+        self.assertEqual(ts.name, 'crocodylus')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 12)
+        self.assertEqual(ts.tips, tuple(['poro', 'palu', 'siam', 'acut',
+            'inte', 'rhom', 'more', 'nil1', 'nil2', 'john', 'nova', 'mind']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_crocodylus):
+            self.assertAlmostEqual(ages[i], expected, places = 7)
+
+        ts = posterior.tip_subset_map['west_niloticus']
+        self.assertEqual(ts.name, 'west_niloticus')
+        self.assertTrue(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 1)
+        self.assertEqual(ts.tips, tuple(['nil2']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        print(ages)
+        print(expected_west_niloticus)
+        for i, expected in enumerate(expected_west_niloticus):
+            self.assertAlmostEqual(ages[i], expected, places = 10)
+
+        ts = posterior.tip_subset_map['paleosuchus']
+        self.assertEqual(ts.name, 'paleosuchus')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['Ppal', 'Ptrig']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_paleosuchus):
+            self.assertAlmostEqual(ages[i], expected, places = 10)
+
+        ts = posterior.tip_subset_map['osteolaemus']
+        self.assertEqual(ts.name, 'osteolaemus')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['oste1', 'oste2']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_osteolaemus):
+            self.assertAlmostEqual(ages[i], expected, places = 10)
+
+        ts = posterior.tip_subset_map['gharials']
+        self.assertEqual(ts.name, 'gharials')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['Gav', 'Tom']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_gharials):
+            self.assertAlmostEqual(ages[i], expected, places = 10)
+
+        ts = posterior.tip_subset_map['melanosuchus']
+        self.assertEqual(ts.name, 'melanosuchus')
+        self.assertTrue(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 1)
+        self.assertEqual(ts.tips, tuple(['Mnig']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_melanosuchus):
+            self.assertAlmostEqual(ages[i], expected, places = 10)
+
+        ts = posterior.tip_subset_map['alligator']
+        self.assertEqual(ts.name, 'alligator')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['Amis', 'Asin']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_alligator):
+            self.assertAlmostEqual(ages[i], expected, places = 10)
+
+        posterior = analysis.posterior_sample_map['PosteriorSample-2']
+        expected_paths = tuple(self.data_path(os.path.join('trees',
+                'gekko-{0}.trees.gz'.format(i))) for i in range(1, 5))
+        self.assertEqual(posterior.paths, expected_paths)
+        self.assertEqual(posterior.burnin, 98)
+        self.assertEqual(len(posterior.tip_subsets), 4)
+
+        ts = posterior.tip_subset_map['mindorensis']
+        self.assertEqual(ts.name, 'mindorensis')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 15)
+        self.assertEqual(ts.tips, tuple(
+                'mi{0}'.format(i) for i in range(1, 16)))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_mindorensis):
+            self.assertAlmostEqual(ages[i], expected, places = 8)
+
+        ts = posterior.tip_subset_map['negros-panay']
+        self.assertEqual(ts.name, 'negros-panay')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['mi8', 'mi9']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_negros_panay):
+            self.assertAlmostEqual(ages[i], expected, places = 10)
+
+        ts = posterior.tip_subset_map['mindoro-caluya']
+        self.assertEqual(ts.name, 'mindoro-caluya')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 2)
+        self.assertEqual(ts.tips, tuple(['mi14', 'mi15']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_mindoro_caluya):
+            self.assertAlmostEqual(ages[i], expected, places = 10)
+
+        ts = posterior.tip_subset_map['kikuchii']
+        self.assertEqual(ts.name, 'kikuchii')
+        self.assertTrue(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 1)
+        self.assertEqual(ts.tips, tuple(['mi3']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(a for (i, a) in ts.node_ages)
+        for i, expected in enumerate(expected_kikuchii):
+            self.assertAlmostEqual(ages[i], expected, places = 10)
+
 if __name__ == "__main__":
     if "--run-tests" in sys.argv:
         import doctest
 
+        # doctest.testmod(verbose = True)
         suite = unittest.TestSuite()
         suite.addTest(doctest.DocTestSuite())
 
