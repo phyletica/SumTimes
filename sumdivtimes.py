@@ -325,10 +325,24 @@ class ConditionEvaluator(object):
 
     >>> ce.evaluate({'x': 1.0, 'y': 2.0, 'z': 3.0})
     True
+    >>> ce.num_evals
+    1
+    >>> ce.num_true
+    1
 
     Extra keys are okay:
     >>> ce.evaluate({'x': 1.0, 'y': 2.0, 'z': 3.0, 'xx': 4.0})
     True
+    >>> ce.num_evals
+    2
+    >>> ce.num_true
+    2
+    >>> ce.evaluate({'x': 5.0, 'y': 2.0, 'z': 3.0, 'xx': 4.0})
+    False
+    >>> ce.num_evals
+    3
+    >>> ce.num_true
+    2
 
     But, all variables in the expression must be keys:
     >>> ce.evaluate({'xx': 1.0, 'y': 2.0, 'z': 3.0})
@@ -362,12 +376,18 @@ class ConditionEvaluator(object):
                 raise SyntaxError('Expression contains invalid syntax '
                         '{0!r}'.format(k))
         self.expression = expression_str
+        self.num_evals = 0
+        self.num_true = 0
 
     def __str__(self):
         return self.expression
 
     def evaluate(self, d):
-        return eval(self.expression.format(**d))
+        ret = eval(self.expression.format(**d))
+        self.num_evals += 1
+        if ret:
+            self.num_true += 1
+        return ret
 
 
 class SumDivTimesError(Exception):
@@ -451,6 +471,7 @@ class AnalysisManager(object):
             self.expressions.append((
                     expression_str,
                     self._parse_expression(expression_str)))
+        self.min_sample_size = None
 
 
     def _get_posterior_samples(self):
@@ -535,10 +556,28 @@ class AnalysisManager(object):
                     ps.sample_size = len(ts.node_ages)
                 else:
                     assert ps.sample_size == len(ts.node_ages)
+        self.min_sample_size = min((
+                ps.sample_size for ps in self.posterior_samples))
+
+    def _sample_iter(self):
+        sample_dict_iters = []
+        for ps in self.posterior_samples:
+            if ps.sample_size > self.min_sample_size:
+                sample_dict_iters.append(ps.sample_iter(self.min_sample_size))
+            else:
+                sample_dict_iters.append(ps.sample_iter())
+        for idx in range(self.min_sample_size):
+            d = {}
+            for dict_iter in sample_dict_iters:
+                d.update(next(dict_iter))
+            yield d
 
     def run_analysis(self):
         self._extract_node_ages()
         self._write_shared_node_age_warning()
+        for d in self._sample_iter():
+            for expression_str, evaluator in self.expressions:
+                evaluator.evaluate(d)
 
     def _write_shared_node_age_warning(self):
         if self.shared_nodes:
@@ -1469,6 +1508,46 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         for i, expected in enumerate(expected_kikuchii):
             self.assertAlmostEqual(sorted(results['kikuchii'
                     ])[i], expected, places = 10)
+
+        # test global sample iter
+        results = {}
+        for d in analysis._sample_iter():
+            for k, v in d.items():
+                if k in results:
+                    results[k].append(v)
+                else:
+                    results[k] = [v]
+        for i, expected in enumerate(expected_alligator):
+            self.assertAlmostEqual(sorted(results['alligator'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_crocodylus):
+            self.assertAlmostEqual(sorted(results['crocodylus'
+                    ])[i], expected, places = 7)
+        for i, expected in enumerate(expected_osteolaemus):
+            self.assertAlmostEqual(sorted(results['osteolaemus'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_gharials):
+            self.assertAlmostEqual(sorted(results['gharials'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_melanosuchus):
+            self.assertAlmostEqual(sorted(results['melanosuchus'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_west_niloticus):
+            self.assertAlmostEqual(sorted(results['west_niloticus'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_mindorensis):
+            self.assertAlmostEqual(sorted(results['mindorensis'
+                    ])[i], expected, places = 8)
+        for i, expected in enumerate(expected_negros_panay):
+            self.assertAlmostEqual(sorted(results['negros-panay'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_mindoro_caluya):
+            self.assertAlmostEqual(sorted(results['mindoro-caluya'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_kikuchii):
+            self.assertAlmostEqual(sorted(results['kikuchii'
+                    ])[i], expected, places = 10)
+
 
     def test_shared_nodes(self):
         expected_crocodylus = sorted([
