@@ -127,6 +127,20 @@ def list_splitter(l, n, by_size=False):
         yield l[i+step_size:]
 
 
+def get_new_path(path, max_attempts = 1000):
+    path = os.path.abspath(os.path.expandvars(os.path.expanduser(path)))
+    if not os.path.exists(path):
+        return path
+    attempt = 0
+    while True:
+        p = '-'.join([path, str(attempt)])
+        if not os.path.exists(p):
+            return p
+        if attempt >= max_attempts:
+            raise Exception('failed to get unique path')
+        attempt += 1
+
+
 def expand_path(path):
     """
     Returns a full path
@@ -348,7 +362,7 @@ class ConditionEvaluator(object):
             if p.search(expression_str):
                 raise SyntaxError('Expression contains invalid syntax '
                         '{0!r}'.format(k))
-        self.variable_keys = list(variable_keys)
+        self.variable_keys = sorted(variable_keys, key = len)
         self.expression_str = expression_str
         exp = self.expression_str
         for k in self.variable_keys:
@@ -379,6 +393,7 @@ class PosteriorSampleDataError(SumDivTimesError):
     def __init__(self, *args, **kwargs):
         SumDivTimesError.__init__(self, *args, **kwargs)
 
+
 class YamlConfigFormattingError(SumDivTimesError):
     def __init__(self, *args, **kwargs):
         SumDivTimesError.__init__(self, *args, **kwargs)
@@ -392,10 +407,23 @@ class AnalysisManager(object):
     the YAML config file.
     """
 
+    number_pattern_string = r'[\d\.Ee\-\+]+'
+    codiverged_pattern_string = (
+            '(?P<block>codiverged\s*\(\s*'
+            'nodes\s*=\s*\[\s*(?P<nodes>.+)\s*\]'
+            '\s*,\s*'
+            'window\s*=\s*(?P<window>.+)\s*\))')
+    codiverged_pattern = re.compile(codiverged_pattern_string)
+
+    window_pattern_string = '(?P<min>{0})\s*-\s*(?P<max>{0})'.format(number_pattern_string)
+    window_pattern = re.compile(window_pattern_string)
+
     def __init__(self, config_path, num_processors):
         posterior_samples = []
-        with ReadFile(config_path) as yaml_stream:
+        self.config_path = config_path
+        with ReadFile(self.config_path) as yaml_stream:
             config = yaml.load(yaml_stream)
+        expression_strings = []
         for setting_dict in config:
             if len(setting_dict) > 1:
                 raise YamlConfigFormattingError(
@@ -408,7 +436,7 @@ class AnalysisManager(object):
                         config_path = config_path,
                         **setting_dict[key]))
             elif key.lower() == 'expression':
-                pass
+                expression_strings.append(setting_dict[key])
             else:
                 raise YamlConfigFormattingError(
                         "Top level keys must be either 'posterior' or "
@@ -417,11 +445,64 @@ class AnalysisManager(object):
                 [ps.name for ps in posterior_samples],
                 posterior_samples))
         self.num_processors = int(num_processors)
+        self.shared_nodes = []
+        tip_subset_names = []
+        for posterior_sample in self.posterior_sample_map.values():
+            for tip_subset in posterior_sample.tip_subset_map.values():
+                tip_subset_names.append(tip_subset.name)
+        self.tip_subset_names = set(tip_subset_names)
+        for expression_str in expression_strings:
+            self._parse_expression(expression_str)
+        # self.shared_node_path = os.path.join(
+        #         os.path.dirname(self.config_path),
+        #         'shared-node-info.txt')
+
+
+    # codiverged(nodes = [crocodylus, paleosuchus, mindorensis], window=8-12)
+    # & (crocodylus > alligator)
 
     def _get_posterior_samples(self):
         return self.posterior_sample_map.values()
 
     posterior_samples = property(_get_posterior_samples)
+
+    def _parse_expression(self, expression):
+        for codiv_match in self.codiverged_pattern.finditer(expression):
+            nodes_str = codiv_match.group('nodes')
+            node_list = [n.strip() for n in nodes_str.split(',')]
+            nodes = set(node_list)
+            if len(nodes) != len(node_list):
+                raise YamlConfigFormattingError(
+                        "duplicated tip subset names in codiverged "
+                        "expression:\n{0}".format(
+                                codiv_match.group('block')))
+            if not nodes.issubset(self.tip_subset_names):
+                raise YamlConfigFormattingError(
+                        "undefined tip subset names in codiverged "
+                        "expression:\n{0}".format(
+                                codiv_match.group('block')))
+                
+            window_str = codiv_match.group('window')
+            window_width = None
+            window_min = None
+            window_max = None
+            try:
+                window_width = float(window_str)
+            except:
+                window_match = self.window_pattern.match(window_str)
+                try:
+                    window_min = float(window_match.group('min'))
+                    window_max = float(window_match.group('max'))
+                except:
+                    raise YamlConfigFormattingError("could not parse codiverged"
+                            " 'window' argument in:\n{0}".format(
+                                    codiv_match.group('block')))
+            replacement = StringIO()
+            if window_width is not None:
+                pass
+            else:
+                pass
+            pass
 
     def _get_node_age_extractors(self):
         workers = []
@@ -437,14 +518,28 @@ class AnalysisManager(object):
             for tip_subset_name, node_ages in worker.node_ages.items():
                 self.posterior_sample_map[worker.label].tip_subset_map[
                         tip_subset_name].node_ages.extend(node_ages)
+            self.shared_nodes.extend(worker.shared_nodes)
 
     def run_analysis(self):
         self._extract_node_ages()
-        ps = list(self.posterior_samples)[1]
-        ts = ps.tip_subset_map['mindorensis']
-        print(ts.name)
-        print(len(ts.node_ages))
-        print(sorted(age for i, age in ts.node_ages))
+        self._write_shared_node_age_warning()
+
+    def _write_shared_node_age_warning(self):
+        if self.shared_nodes:
+            out_stream = StringIO()
+            sys.stderr.write("""\
+WARNING: Some of the tip subsets you defined map to the same node in some of
+         the trees. All of the information about the shared nodes is listed
+         below. For each case in which multiple tip subsets mapped to the same
+         node, the tree file, index, and label is given, along with the tip
+         subsets that shared a node.\n""")
+            out_stream.write("tree_file\ttree_index\ttree_label\ttip_subsets\n")
+            for shared_node in self.shared_nodes:
+                out_stream.write("{0.tree_path}\t{0.tree_index}\t"
+                        "{0.tree_label}\t{1}\n".format(
+                                shared_node, 
+                                ", ".join(shared_node.tip_subset_names)))
+            sys.stderr.write(out_stream.getvalue())
 
 
 class PosteriorSample(object):
@@ -574,6 +669,7 @@ class PosteriorWorker(object):
         self.finished = False
         self.node_ages = dict((ts.name, []) for ts in tip_subsets)
         self.tip_subsets = [(ts.name, ts.tips, ts.stem_based) for ts in tip_subsets]
+        self.shared_nodes = []
         self.error = None
         self.trace_back = None
 
@@ -601,14 +697,40 @@ class PosteriorWorker(object):
                             i + 1,
                             self.path))
                 tree.calc_node_ages()
+                nodes_visited = {}
+                shared_nodes = set()
                 for name, tips, stem_based in self.tip_subsets:
                     mrca_node = tree.mrca(taxon_labels = tips)
                     target_node = mrca_node
                     if target_node.parent_node and stem_based:
                         target_node = mrca_node.parent_node
-                    self.node_ages[name].append((
-                            id(target_node),
-                            target_node.age))
+                    self.node_ages[name].append(target_node.age)
+                    if id(target_node) in nodes_visited:
+                        nodes_visited[id(target_node)].append(name)
+                        shared_nodes.add(id(target_node))
+                    else:
+                        nodes_visited[id(target_node)] = [name]
+                for node_id in shared_nodes:
+                    self.shared_nodes.append(SharedNode(
+                            tree_path = self.path,
+                            tree_index = tree_idx,
+                            tree_label = tree.label,
+                            node_id = node_id,
+                            tip_subset_names = nodes_visited[node_id]))
+        self.finished = True
+
+class SharedNode(object):
+    def __init__(self,
+            tree_path,
+            tree_index,
+            tree_label,
+            node_id,
+            tip_subset_names):
+        self.tree_path = tree_path
+        self.tree_index = tree_index
+        self.tree_label = tree_label
+        self.node_id = node_id
+        self.tip_subset_names = tuple(tip_subset_names)
 
 class JobManager(multiprocessing.Process):
     count = 0
@@ -955,9 +1077,10 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
     def test_init_simple(self):
         analysis = AnalysisManager(
                 config_path = self.config_path,
-                num_processors = 2)
-        self.assertEqual(analysis.num_processors, 2)
+                num_processors = 8)
+        self.assertEqual(analysis.num_processors, 8)
         self.assertEqual(len(analysis.posterior_samples), 2)
+        self.assertEqual(analysis.shared_nodes, [])
 
         posterior = analysis.posterior_sample_map['PosteriorSample-1']
         expected_paths = tuple(self.data_path(os.path.join('trees',
@@ -1124,11 +1247,14 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
 
         analysis = AnalysisManager(
                 config_path = config_path,
-                num_processors = 2)
-        self.assertEqual(analysis.num_processors, 2)
+                num_processors = 8)
+        self.assertEqual(analysis.num_processors, 8)
         self.assertEqual(len(analysis.posterior_samples), 2)
+        self.assertEqual(analysis.shared_nodes, [])
 
         analysis._extract_node_ages()
+
+        self.assertEqual(analysis.shared_nodes, [])
 
         posterior = analysis.posterior_sample_map['PosteriorSample-1']
         expected_paths = tuple(self.data_path(os.path.join('trees',
@@ -1145,7 +1271,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(ts.tips, tuple(['poro', 'palu', 'siam', 'acut',
             'inte', 'rhom', 'more', 'nil1', 'nil2', 'john', 'nova', 'mind']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_crocodylus):
             self.assertAlmostEqual(ages[i], expected, places = 7)
 
@@ -1156,9 +1282,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(len(ts.tips), 1)
         self.assertEqual(ts.tips, tuple(['nil2']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
-        print(ages)
-        print(expected_west_niloticus)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_west_niloticus):
             self.assertAlmostEqual(ages[i], expected, places = 10)
 
@@ -1169,7 +1293,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(len(ts.tips), 2)
         self.assertEqual(ts.tips, tuple(['Ppal', 'Ptrig']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_paleosuchus):
             self.assertAlmostEqual(ages[i], expected, places = 10)
 
@@ -1180,7 +1304,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(len(ts.tips), 2)
         self.assertEqual(ts.tips, tuple(['oste1', 'oste2']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_osteolaemus):
             self.assertAlmostEqual(ages[i], expected, places = 10)
 
@@ -1191,7 +1315,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(len(ts.tips), 2)
         self.assertEqual(ts.tips, tuple(['Gav', 'Tom']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_gharials):
             self.assertAlmostEqual(ages[i], expected, places = 10)
 
@@ -1202,7 +1326,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(len(ts.tips), 1)
         self.assertEqual(ts.tips, tuple(['Mnig']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_melanosuchus):
             self.assertAlmostEqual(ages[i], expected, places = 10)
 
@@ -1213,7 +1337,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(len(ts.tips), 2)
         self.assertEqual(ts.tips, tuple(['Amis', 'Asin']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_alligator):
             self.assertAlmostEqual(ages[i], expected, places = 10)
 
@@ -1232,7 +1356,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(ts.tips, tuple(
                 'mi{0}'.format(i) for i in range(1, 16)))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_mindorensis):
             self.assertAlmostEqual(ages[i], expected, places = 8)
 
@@ -1243,7 +1367,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(len(ts.tips), 2)
         self.assertEqual(ts.tips, tuple(['mi8', 'mi9']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_negros_panay):
             self.assertAlmostEqual(ages[i], expected, places = 10)
 
@@ -1254,7 +1378,7 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(len(ts.tips), 2)
         self.assertEqual(ts.tips, tuple(['mi14', 'mi15']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_mindoro_caluya):
             self.assertAlmostEqual(ages[i], expected, places = 10)
 
@@ -1265,9 +1389,75 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         self.assertEqual(len(ts.tips), 1)
         self.assertEqual(ts.tips, tuple(['mi3']))
         self.assertEqual(len(ts.node_ages), 8)
-        ages = sorted(a for (i, a) in ts.node_ages)
+        ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_kikuchii):
             self.assertAlmostEqual(ages[i], expected, places = 10)
+
+    def test_shared_nodes(self):
+        expected_crocodylus = sorted([
+                13.82994415, 13.72342828,
+                12.243275177, 12.479067473,
+                8.57111211, 8.665404431,
+                11.224377229, 11.337633924
+                ])
+
+        config_path = self.data_path('config-burnin98-shared-nodes.yml')
+
+        analysis = AnalysisManager(
+                config_path = config_path,
+                num_processors = 8)
+        self.assertEqual(analysis.num_processors, 8)
+        self.assertEqual(len(analysis.posterior_samples), 2)
+        self.assertEqual(analysis.shared_nodes, [])
+
+        # analysis._extract_node_ages()
+        analysis.run_analysis()
+
+        self.assertEqual(len(analysis.shared_nodes), 8)
+
+        posterior = analysis.posterior_sample_map['PosteriorSample-1']
+        expected_paths = tuple(self.data_path(os.path.join('trees',
+                'crocs-{0}.trees.gz'.format(i))) for i in range(1, 5))
+        self.assertEqual(posterior.paths, expected_paths)
+        self.assertEqual(posterior.burnin, 98)
+        self.assertEqual(len(posterior.tip_subsets), 8)
+
+        ts = posterior.tip_subset_map['crocodylus']
+        self.assertEqual(ts.name, 'crocodylus')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 12)
+        self.assertEqual(ts.tips, tuple(['poro', 'palu', 'siam', 'acut',
+            'inte', 'rhom', 'more', 'nil1', 'nil2', 'john', 'nova', 'mind']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(ts.node_ages)
+        for i, expected in enumerate(expected_crocodylus):
+            self.assertAlmostEqual(ages[i], expected, places = 7)
+
+        ts = posterior.tip_subset_map['crocs']
+        self.assertEqual(ts.name, 'crocs')
+        self.assertFalse(ts.stem_based)
+        self.assertIsInstance(ts.stem_based, bool)
+        self.assertEqual(len(ts.tips), 12)
+        self.assertEqual(ts.tips, tuple(['poro', 'palu', 'siam', 'acut',
+            'inte', 'rhom', 'more', 'nil1', 'nil2', 'john', 'nova', 'mind']))
+        self.assertEqual(len(ts.node_ages), 8)
+        ages = sorted(ts.node_ages)
+        for i, expected in enumerate(expected_crocodylus):
+            self.assertAlmostEqual(ages[i], expected, places = 7)
+
+        for shared_node in analysis.shared_nodes:
+            self.assertIsInstance(shared_node.tip_subset_names, tuple)
+            self.assertEqual(len(shared_node.tip_subset_names), 2)
+            self.assertEqual(shared_node.tip_subset_names,
+                    tuple(['crocodylus', 'crocs']))
+            self.assertTrue(shared_node.tree_index in [98, 99])
+            self.assertTrue(shared_node.tree_label in ['STATE_199900000',
+                    'STATE_200000000'])
+            path_pattern = re.compile(r'crocs-[1234].trees.gz')
+            self.assertTrue(path_pattern.match(os.path.basename(
+                    shared_node.tree_path)))
+
 
 if __name__ == "__main__":
     if "--run-tests" in sys.argv:
