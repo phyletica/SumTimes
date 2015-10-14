@@ -448,7 +448,7 @@ class AnalysisManager(object):
                 posterior_samples.append(PosteriorSample(
                         config_path = config_path,
                         **setting_dict[key]))
-            elif key.lower() == 'condition':
+            elif key.lower() == 'expression':
                 expression_strings.append(setting_dict[key].strip())
             else:
                 raise YamlConfigFormattingError(
@@ -589,11 +589,11 @@ class AnalysisManager(object):
             results['num_samples'] = evaluator.num_evals
             results['num_true'] = evaluator.num_true
             results['prob'] = float(evaluator.num_true) / float(evaluator.num_evals)
-            sys.stdout.write("- condition:\n")
-            sys.stdout.write("{tab}expression: >\n{tab}{tab}{exp_str}\n".format(**results))
-            sys.stdout.write("{tab}number_of_samples: {num_samples}\n".format(**results))
-            sys.stdout.write("{tab}number_of_samples_passing: {num_true}\n".format(**results))
-            sys.stdout.write("{tab}estimated_posterior_probability: {prob}\n".format(**results))
+            # sys.stdout.write("- result:\n")
+            sys.stdout.write("- expression: >\n{tab}{tab}{exp_str}\n".format(**results))
+            sys.stdout.write("  number_of_samples: {num_samples}\n".format(**results))
+            sys.stdout.write("  number_of_samples_passing: {num_true}\n".format(**results))
+            sys.stdout.write("  estimated_posterior_probability: {prob}\n".format(**results))
 
     def run_analysis(self):
         self._extract_node_ages()
