@@ -448,7 +448,7 @@ class AnalysisManager(object):
                 posterior_samples.append(PosteriorSample(
                         config_path = config_path,
                         **setting_dict[key]))
-            elif key.lower() == 'expression':
+            elif key.lower() == 'condition':
                 expression_strings.append(setting_dict[key].strip())
             else:
                 raise YamlConfigFormattingError(
@@ -545,7 +545,16 @@ class AnalysisManager(object):
         workers = self._get_node_age_extractors()
         np = min((self.num_processors, len(workers)))
         workers = JobManager.run_workers(workers, np)
-        for worker in workers:
+
+        # sort workers by order of tree paths in config
+        worker_dict = {}
+        for w in workers:
+            worker_dict[w.path] = w
+        sorted_workers = []
+        for ps in self.posterior_samples:
+            sorted_workers.extend(worker_dict[path] for path in ps.paths)
+
+        for worker in sorted_workers:
             for tip_subset_name, node_ages in worker.node_ages.items():
                 self.posterior_sample_map[worker.label].tip_subset_map[
                         tip_subset_name].node_ages.extend(node_ages)
@@ -572,12 +581,27 @@ class AnalysisManager(object):
                 d.update(next(dict_iter))
             yield d
 
+    def _write_results(self):
+        for expression_str, evaluator in self.expressions:
+            results = {}
+            results['tab'] = "    "
+            results['exp_str'] = expression_str
+            results['num_samples'] = evaluator.num_evals
+            results['num_true'] = evaluator.num_true
+            results['prob'] = float(evaluator.num_true) / float(evaluator.num_evals)
+            sys.stdout.write("- condition:\n")
+            sys.stdout.write("{tab}expression: >\n{tab}{tab}{exp_str}\n".format(**results))
+            sys.stdout.write("{tab}number_of_samples: {num_samples}\n".format(**results))
+            sys.stdout.write("{tab}number_of_samples_passing: {num_true}\n".format(**results))
+            sys.stdout.write("{tab}estimated_posterior_probability: {prob}\n".format(**results))
+
     def run_analysis(self):
         self._extract_node_ages()
         self._write_shared_node_age_warning()
         for d in self._sample_iter():
             for expression_str, evaluator in self.expressions:
                 evaluator.evaluate(d)
+        self._write_results()
 
     def _write_shared_node_age_warning(self):
         if self.shared_nodes:
@@ -1244,20 +1268,20 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
 
     def test_node_age_extraction(self):
         expected_gharials = sorted([
-                24.110664117758816, 23.8698119130743,
-                17.525196673650544, 17.278507106852423,
-                29.289878591287646, 28.736445592848177,
-                22.73014866038517, 22.862970224653782,
+                23.8698119130743, 24.110664117758816,
+                17.278507106852423, 17.525196673650544,
+                28.736445592848177, 29.289878591287646,
+                22.862970224653782, 22.73014866038517,
                 ])
         expected_melanosuchus = sorted([
-                13.711715908355902, 13.609008882171471,
+                13.609008882171471, 13.711715908355902,
                 11.853850104040147, 12.009572143207354,
                 12.554953862782313, 12.812054853892633,
                 14.721849319453726, 14.62532687808455,
                 ])
         expected_paleosuchus = sorted([
                 11.754200065064312, 11.872802801034062,
-                8.50701081812682, 8.37934540330511,
+                8.37934540330511, 8.50701081812682,
                 9.96578859714118, 10.157718954265865,
                 9.592638399609369, 9.524296161442503,
                 ])
@@ -1268,20 +1292,20 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
                 5.980145075454821, 5.91632654653123,
                 ])
         expected_alligator = sorted([
-                57.84415042497245, 57.398644613783794,
                 54.67453512303167, 55.22621447318503,
                 38.76479499095923, 39.274041596147335,
                 39.536140588112424, 40.32631221208484,
+                57.84415042497245, 57.398644613783794,
                 ])
         expected_crocodylus = sorted([
-                13.82994415, 13.72342828,
-                12.243275177, 12.479067473,
+                11.224377229, 11.337633924,
                 8.57111211, 8.665404431,
-                11.224377229, 11.337633924
+                12.243275177, 12.479067473,
+                13.82994415, 13.72342828,
                 ])
         expected_osteolaemus = sorted([
                 5.094794597113713, 5.2060168284681225,
-                6.6974853173279705, 6.610642417475237,
+                6.610642417475237, 6.6974853173279705,
                 7.621088625461037, 7.715969598889821,
                 7.223120239867402, 7.0263267708481925,
                 ])
@@ -1304,10 +1328,10 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
                 0.4317073941498, 0.4930305649664,
                 ])
         expected_mindorensis = sorted([
-                5.42999295194, 5.59535942059,
-                10.11978724353, 8.99089000045,
-                10.55270053408, 11.16206126123,
                 6.51883087116, 7.25195430298,
+                10.55270053408, 11.16206126123,
+                8.99089000045, 10.11978724353,
+                5.42999295194, 5.59535942059,
                 ])
 
         config_path = self.data_path('config-burnin98.yml')
@@ -1551,10 +1575,10 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
 
     def test_shared_nodes(self):
         expected_crocodylus = sorted([
-                13.82994415, 13.72342828,
-                12.243275177, 12.479067473,
+                11.224377229, 11.337633924,
                 8.57111211, 8.665404431,
-                11.224377229, 11.337633924
+                12.243275177, 12.479067473,
+                13.82994415, 13.72342828,
                 ])
 
         config_path = self.data_path('config-burnin98-shared-nodes.yml')
@@ -1613,6 +1637,121 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
             path_pattern = re.compile(r'crocs-[1234].trees.gz')
             self.assertTrue(path_pattern.match(os.path.basename(
                     shared_node.tree_path)))
+
+    def test_run_analysis(self):
+        expected_gharials = sorted([
+                23.8698119130743, 24.110664117758816,
+                17.278507106852423, 17.525196673650544,
+                28.736445592848177, 29.289878591287646,
+                22.862970224653782, 22.73014866038517,
+                ])
+        expected_melanosuchus = sorted([
+                13.609008882171471, 13.711715908355902,
+                11.853850104040147, 12.009572143207354,
+                12.554953862782313, 12.812054853892633,
+                14.721849319453726, 14.62532687808455,
+                ])
+        expected_alligator = sorted([
+                54.67453512303167, 55.22621447318503,
+                38.76479499095923, 39.274041596147335,
+                39.536140588112424, 40.32631221208484,
+                57.84415042497245, 57.398644613783794,
+                ])
+
+        expected_crocodylus = sorted([
+                11.224377229, 11.337633924,
+                8.57111211, 8.665404431,
+                12.243275177, 12.479067473,
+                13.82994415, 13.72342828,
+                ])
+        expected_paleosuchus = sorted([
+                11.754200065064312, 11.872802801034062,
+                8.37934540330511, 8.50701081812682,
+                9.96578859714118, 10.157718954265865,
+                9.592638399609369, 9.524296161442503,
+                ])
+        expected_mindorensis = sorted([
+                6.51883087116, 7.25195430298,
+                10.55270053408, 11.16206126123,
+                8.99089000045, 10.11978724353,
+                5.42999295194, 5.59535942059,
+                ])
+
+        expected_west_niloticus = sorted([
+                7.386885895079755, 7.534701038569063,
+                6.269231032209964, 6.351588867999811,
+                8.880262231537047, 9.049091134769006,
+                5.980145075454821, 5.91632654653123,
+                ])
+        expected_osteolaemus = sorted([
+                5.094794597113713, 5.2060168284681225,
+                6.610642417475237, 6.6974853173279705,
+                7.621088625461037, 7.715969598889821,
+                7.223120239867402, 7.0263267708481925,
+                ])
+
+        expected_kikuchii = sorted([
+                0.02721530343176, 0.0261044431547,
+                0.041167646421379996, 0.04907320501923,
+                0.146814958946, 0.11886249552520001,
+                0.1393305421926, 0.12840039221740002,
+                ])
+        expected_negros_panay = sorted([
+                1.265195722159, 1.4052596825099999,
+                0.80855471807, 0.88277607765,
+                1.6664470532750002, 1.8156460958379999,
+                1.462959885987, 1.491361934884,
+                ])
+        expected_mindoro_caluya = sorted([
+                0.3925895072452, 0.3258940306721,
+                0.2813710152072, 0.6968195707754,
+                0.43292023300669996, 0.6484198072188,
+                0.4317073941498, 0.4930305649664,
+                ])
+        expected_codiv_np_mc = 1
+        expected_croc_lt_osteo = 0
+        expected_kikuchii_lt_osteo_lt_croc = 8
+        expected_croc_gt_paleo_and_mind_gt_osteo = 4
+        expected_codiv_croc_paleo_mind = 2
+        expected_croc_lt_osteo_or_wnil_lt_mind = 4
+
+        config_path = self.data_path('config-burnin98.yml')
+
+        analysis = AnalysisManager(
+                config_path = config_path,
+                num_processors = 4)
+        self.assertEqual(analysis.num_processors, 4)
+        self.assertEqual(len(analysis.posterior_samples), 2)
+        self.assertEqual(analysis.shared_nodes, [])
+
+        analysis.run_analysis()
+        for exp_str, evaluator in analysis.expressions:
+            self.assertEqual(evaluator.num_evals, 8)
+
+        self.assertEqual(
+                analysis.expressions[0][1].num_true,
+                expected_codiv_np_mc
+                )
+        self.assertEqual(
+                analysis.expressions[1][1].num_true,
+                expected_croc_lt_osteo
+                )
+        self.assertEqual(
+                analysis.expressions[2][1].num_true,
+                expected_kikuchii_lt_osteo_lt_croc
+                )
+        self.assertEqual(
+                analysis.expressions[3][1].num_true,
+                expected_croc_gt_paleo_and_mind_gt_osteo
+                )
+        self.assertEqual(
+                analysis.expressions[4][1].num_true,
+                expected_codiv_croc_paleo_mind
+                )
+        self.assertEqual(
+                analysis.expressions[5][1].num_true,
+                expected_croc_lt_osteo_or_wnil_lt_mind
+                )
 
 
 if __name__ == "__main__":

@@ -79,22 +79,22 @@
         - name: mindoro-caluya
           tips: [mi14, mi15]
 
-- expression: >
-    codiverged(nodes = [negros-panay, mindoro-caluya], window = 0.1)
+- condition: >
+    codiverged(nodes = [negros-panay, mindoro-caluya], window = 0.2)
 
-- expression: >
+- condition: >
     crocodylus < osteolaemus
 
-- expression: >
-    kikuchii < crocodylus < osteolaemus
+- condition: >
+    kikuchii < osteolaemus < crocodylus
 
-- expression: >
-    (crocodylus < osteolaemus) & (crocodylus > kikuchii)
+- condition: >
+    (crocodylus > paleosuchus) & (mindorensis > osteolaemus)
 
-- expression: >
+- condition: >
     codiverged(nodes = [crocodylus, paleosuchus, mindorensis], window=8-12)
-    & (crocodylus > alligator)
+    & (crocodylus < alligator)
 
-- expression: >
+- condition: >
     (crocodylus < osteolaemus) |
-    (crocodylus < mindorensis)
+    (west_niloticus < mindorensis)
