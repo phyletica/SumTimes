@@ -17,6 +17,9 @@ import tempfile
 import argparse
 import logging
 import unittest
+import math
+import itertools
+import random
 try:
     import queue
 except ImportError:
@@ -43,9 +46,9 @@ _program_info = {
 try:
     import yaml
 except ImportError:
-    _LOG.error("""
-Could not import yaml. The package 'pyyaml' is required for {0}.
-Please try to install on the command line using:
+    raise ImportError("""No module named yaml.
+The package 'pyyaml' is required for {0}.  Please try to install on the command
+line using:
 
     sudo pip install pyyaml
 
@@ -53,14 +56,13 @@ If you do not have admin privileges you can install via:
 
     pip install --user pyyaml
 """.format(_program_info['name']))
-    sys.exit(1)
 
 try:
     import dendropy
 except ImportError:
-    _LOG.error("""
-Could not import dendropy. The package 'dendropy' is required for {0}.
-Please try to install on the command line using:
+    raise ImportError("""No module named dendropy.
+The package 'dendropy' is required for {0}.  Please try to install on the
+command line using:
 
     sudo pip install dendropy
 
@@ -68,7 +70,6 @@ If you do not have admin privileges you can install via:
 
     pip install --user dendropy
 """.format(_program_info['name']))
-    sys.exit(1)
 
 
 def list_splitter(l, n, by_size=False):
@@ -318,11 +319,9 @@ class ReadFile(object):
 
 class ConditionEvaluator(object):
     """
-    >>> ce = ConditionEvaluator(
-    ...        expression_str = "x < y < z",
-    ...        variable_keys = ['x', 'y', 'z'])
+    >>> ce = ConditionEvaluator(expression_str = "{x} < {y} < {z}")
     >>> str(ce)
-    'x < y < z'
+    '{x} < {y} < {z}'
 
     >>> ce.evaluate({'x': 1.0, 'y': 2.0, 'z': 3.0})
     True
@@ -337,18 +336,18 @@ class ConditionEvaluator(object):
         ...
     KeyError: 'x'
 
-    >>> ce = ConditionEvaluator("x < y = z", ['x', 'y', 'z'])
+    >>> ce = ConditionEvaluator("{x} < {y} = {z}")
     Traceback (most recent call last):
         ...
     SyntaxError: Expression contains invalid syntax '='
 
-    >>> ce = ConditionEvaluator("x < (y == z", ['x', 'y', 'z'])
+    >>> ce = ConditionEvaluator("{x} < ({y} == {z}")
     >>> ce.evaluate({'x': 1.0, 'y': 3.0, 'z': 3.0}) #doctest: +ELLIPSIS
     Traceback (most recent call last):
         ...
     SyntaxError: ...
 
-    >>> ce = ConditionEvaluator("abs(x - y) < 1.0", ['x', 'y'])
+    >>> ce = ConditionEvaluator("abs({x} - {y}) < 1.0")
     >>> ce.evaluate({'x': 1.1, 'y': 1.3})
     True
     """
@@ -357,26 +356,18 @@ class ConditionEvaluator(object):
             '=': re.compile(r'[^=]=[^=]'),
             }
 
-    def __init__(self, expression_str, variable_keys):
+    def __init__(self, expression_str):
         for k, p in self.INVALID_PATTERNS.items():
             if p.search(expression_str):
                 raise SyntaxError('Expression contains invalid syntax '
                         '{0!r}'.format(k))
-        self.variable_keys = sorted(variable_keys, key = len)
-        self.expression_str = expression_str
-        exp = self.expression_str
-        for k in self.variable_keys:
-            if exp.find(k) > -1:
-                exp = exp.replace(k, "d['{0}']".format(k))
-            else:
-                raise KeyError('Expression does not contain key {0!r}'.format(v))
-        self.expression = exp
+        self.expression = expression_str
 
     def __str__(self):
-        return self.expression_str
+        return self.expression
 
     def evaluate(self, d):
-        return eval(self.expression)
+        return eval(self.expression.format(**d))
 
 
 class SumDivTimesError(Exception):
@@ -408,11 +399,13 @@ class AnalysisManager(object):
     """
 
     number_pattern_string = r'[\d\.Ee\-\+]+'
+    nodes_pattern_string = r'[\w\s\,\.\-\{\}]+'
     codiverged_pattern_string = (
             '(?P<block>codiverged\s*\(\s*'
-            'nodes\s*=\s*\[\s*(?P<nodes>.+)\s*\]'
+            'nodes\s*=\s*\[\s*(?P<nodes>{0})\s*\]'
             '\s*,\s*'
-            'window\s*=\s*(?P<window>.+)\s*\))')
+            'window\s*=\s*(?P<window>[\s\d\.Ee\-\+]+)\s*\))'.format(
+                    nodes_pattern_string))
     codiverged_pattern = re.compile(codiverged_pattern_string)
 
     window_pattern_string = '(?P<min>{0})\s*-\s*(?P<max>{0})'.format(number_pattern_string)
@@ -436,7 +429,7 @@ class AnalysisManager(object):
                         config_path = config_path,
                         **setting_dict[key]))
             elif key.lower() == 'expression':
-                expression_strings.append(setting_dict[key])
+                expression_strings.append(setting_dict[key].strip())
             else:
                 raise YamlConfigFormattingError(
                         "Top level keys must be either 'posterior' or "
@@ -451,15 +444,14 @@ class AnalysisManager(object):
             for tip_subset in posterior_sample.tip_subset_map.values():
                 tip_subset_names.append(tip_subset.name)
         self.tip_subset_names = set(tip_subset_names)
+        self.expression_names = set(
+                "{{{0}}}".format(n) for n in self.tip_subset_names)
+        self.expressions = []
         for expression_str in expression_strings:
-            self._parse_expression(expression_str)
-        # self.shared_node_path = os.path.join(
-        #         os.path.dirname(self.config_path),
-        #         'shared-node-info.txt')
+            self.expressions.append((
+                    expression_str,
+                    self._parse_expression(expression_str)))
 
-
-    # codiverged(nodes = [crocodylus, paleosuchus, mindorensis], window=8-12)
-    # & (crocodylus > alligator)
 
     def _get_posterior_samples(self):
         return self.posterior_sample_map.values()
@@ -467,7 +459,13 @@ class AnalysisManager(object):
     posterior_samples = property(_get_posterior_samples)
 
     def _parse_expression(self, expression):
-        for codiv_match in self.codiverged_pattern.finditer(expression):
+        new_expression = expression
+        for name in self.tip_subset_names:
+            new_expression = new_expression.replace(name, '{{{0}}}'.format(
+                    name))
+        match_idx = -1
+        for match_idx, codiv_match in enumerate(
+                self.codiverged_pattern.finditer(new_expression)):
             nodes_str = codiv_match.group('nodes')
             node_list = [n.strip() for n in nodes_str.split(',')]
             nodes = set(node_list)
@@ -476,7 +474,7 @@ class AnalysisManager(object):
                         "duplicated tip subset names in codiverged "
                         "expression:\n{0}".format(
                                 codiv_match.group('block')))
-            if not nodes.issubset(self.tip_subset_names):
+            if not nodes.issubset(self.expression_names):
                 raise YamlConfigFormattingError(
                         "undefined tip subset names in codiverged "
                         "expression:\n{0}".format(
@@ -497,12 +495,24 @@ class AnalysisManager(object):
                     raise YamlConfigFormattingError("could not parse codiverged"
                             " 'window' argument in:\n{0}".format(
                                     codiv_match.group('block')))
-            replacement = StringIO()
+            conditions = []
             if window_width is not None:
-                pass
+                for node1, node2 in itertools.combinations(nodes, 2):
+                    conditions.append("(math.fabs({0} - {1}) < {2})".format(
+                            node1, node2, window_width))
             else:
-                pass
-            pass
+                for node in nodes:
+                    conditions.append("({0} < {1} < {2})".format(window_min,
+                            node, window_max))
+            replacement = " & ".join(conditions)
+            new_expression = new_expression.replace(codiv_match.group('block'),
+                    replacement)
+        if (match_idx < 0) and (expression.find('codiverged') >= 0):
+            raise YamlConfigFormattingError(
+                    "could not parse 'codiverged' statement in "
+                        "expression:\n{0}".format(expression))
+        return ConditionEvaluator(new_expression)
+
 
     def _get_node_age_extractors(self):
         workers = []
@@ -519,6 +529,12 @@ class AnalysisManager(object):
                 self.posterior_sample_map[worker.label].tip_subset_map[
                         tip_subset_name].node_ages.extend(node_ages)
             self.shared_nodes.extend(worker.shared_nodes)
+        for ps in self.posterior_samples:
+            for ts in ps.tip_subsets:
+                if ps.sample_size < 1:
+                    ps.sample_size = len(ts.node_ages)
+                else:
+                    assert ps.sample_size == len(ts.node_ages)
 
     def run_analysis(self):
         self._extract_node_ages()
@@ -607,6 +623,7 @@ class PosteriorSample(object):
         if len(kwargs) > 0:
             _LOG.warning("Unexpected attributes in posterior sample {0!r}: "
                     "{1}".format(self.name, ", ".join(kwargs.keys())))
+        self.sample_size = 0
 
     def _get_tip_subsets(self):
         return self.tip_subset_map.values()
@@ -623,6 +640,17 @@ class PosteriorSample(object):
                     label = self.name)
             workers.append(w)
         return workers
+
+    def sample_iter(self, sample_size = None):
+        index_iter = range(self.sample_size)
+        if sample_size:
+            index_iter = (random.choice(range(self.sample_size)) for i in range(
+                    sample_size))
+        for idx in index_iter:
+            d = {}
+            for ts in self.tip_subsets:
+                d[ts.name] = ts.node_ages[idx]
+            yield d
 
 
 class PosteriorWorker(object):
@@ -1341,6 +1369,34 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         for i, expected in enumerate(expected_alligator):
             self.assertAlmostEqual(ages[i], expected, places = 10)
 
+        # test sample iter
+        results = {}
+        for d in posterior.sample_iter():
+            for k, v in d.items():
+                if k in results:
+                    results[k].append(v)
+                else:
+                    results[k] = [v]
+        for i, expected in enumerate(expected_alligator):
+            self.assertAlmostEqual(sorted(results['alligator'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_crocodylus):
+            self.assertAlmostEqual(sorted(results['crocodylus'
+                    ])[i], expected, places = 7)
+        for i, expected in enumerate(expected_osteolaemus):
+            self.assertAlmostEqual(sorted(results['osteolaemus'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_gharials):
+            self.assertAlmostEqual(sorted(results['gharials'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_melanosuchus):
+            self.assertAlmostEqual(sorted(results['melanosuchus'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_west_niloticus):
+            self.assertAlmostEqual(sorted(results['west_niloticus'
+                    ])[i], expected, places = 10)
+
+
         posterior = analysis.posterior_sample_map['PosteriorSample-2']
         expected_paths = tuple(self.data_path(os.path.join('trees',
                 'gekko-{0}.trees.gz'.format(i))) for i in range(1, 5))
@@ -1392,6 +1448,27 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
         ages = sorted(ts.node_ages)
         for i, expected in enumerate(expected_kikuchii):
             self.assertAlmostEqual(ages[i], expected, places = 10)
+
+        # test sample iter
+        results = {}
+        for d in posterior.sample_iter():
+            for k, v in d.items():
+                if k in results:
+                    results[k].append(v)
+                else:
+                    results[k] = [v]
+        for i, expected in enumerate(expected_mindorensis):
+            self.assertAlmostEqual(sorted(results['mindorensis'
+                    ])[i], expected, places = 8)
+        for i, expected in enumerate(expected_negros_panay):
+            self.assertAlmostEqual(sorted(results['negros-panay'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_mindoro_caluya):
+            self.assertAlmostEqual(sorted(results['mindoro-caluya'
+                    ])[i], expected, places = 10)
+        for i, expected in enumerate(expected_kikuchii):
+            self.assertAlmostEqual(sorted(results['kikuchii'
+                    ])[i], expected, places = 10)
 
     def test_shared_nodes(self):
         expected_crocodylus = sorted([
