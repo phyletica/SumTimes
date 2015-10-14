@@ -33,6 +33,7 @@ import multiprocessing
 logging.basicConfig(level=logging.INFO)
 _LOG = logging.getLogger(os.path.basename(__file__))
 _LOCK = multiprocessing.Lock()
+_RNG = random.Random()
 
 _program_info = {
     'name': os.path.basename(__file__),
@@ -704,10 +705,12 @@ class PosteriorSample(object):
             workers.append(w)
         return workers
 
-    def sample_iter(self, sample_size = None):
+    def sample_iter(self, sample_size = None, rng = None):
         index_iter = range(self.sample_size)
         if sample_size:
-            index_iter = (random.choice(range(self.sample_size)) for i in range(
+            if not rng:
+                rng = _RNG
+            index_iter = (rng.choice(range(self.sample_size)) for i in range(
                     sample_size))
         for idx in index_iter:
             d = {}
@@ -1107,11 +1110,18 @@ def main_cli(argv = sys.argv):
             help = ('The maximum number of processes to run in parallel. The '
                     'default is the smaller of the number of tree files or the '
                     'number of CPUs available on the machine.'))
+    parser.add_argument('--seed',
+            action = 'store',
+            type = int,
+            help = 'Random number seed to use for the analysis.')
 
     if argv == sys.argv:
         args = parser.parse_args()
     else:
         args = parser.parse_args(argv)
+    if not args.seed:
+        args.seed = random.randint(1, 999999999)
+    _RNG.seed(args.seed)
 
     analysis = AnalysisManager(config_path = args.config_path,
             num_processors = args.np)
@@ -1639,75 +1649,6 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
                     shared_node.tree_path)))
 
     def test_run_analysis(self):
-        expected_gharials = sorted([
-                23.8698119130743, 24.110664117758816,
-                17.278507106852423, 17.525196673650544,
-                28.736445592848177, 29.289878591287646,
-                22.862970224653782, 22.73014866038517,
-                ])
-        expected_melanosuchus = sorted([
-                13.609008882171471, 13.711715908355902,
-                11.853850104040147, 12.009572143207354,
-                12.554953862782313, 12.812054853892633,
-                14.721849319453726, 14.62532687808455,
-                ])
-        expected_alligator = sorted([
-                54.67453512303167, 55.22621447318503,
-                38.76479499095923, 39.274041596147335,
-                39.536140588112424, 40.32631221208484,
-                57.84415042497245, 57.398644613783794,
-                ])
-
-        expected_crocodylus = sorted([
-                11.224377229, 11.337633924,
-                8.57111211, 8.665404431,
-                12.243275177, 12.479067473,
-                13.82994415, 13.72342828,
-                ])
-        expected_paleosuchus = sorted([
-                11.754200065064312, 11.872802801034062,
-                8.37934540330511, 8.50701081812682,
-                9.96578859714118, 10.157718954265865,
-                9.592638399609369, 9.524296161442503,
-                ])
-        expected_mindorensis = sorted([
-                6.51883087116, 7.25195430298,
-                10.55270053408, 11.16206126123,
-                8.99089000045, 10.11978724353,
-                5.42999295194, 5.59535942059,
-                ])
-
-        expected_west_niloticus = sorted([
-                7.386885895079755, 7.534701038569063,
-                6.269231032209964, 6.351588867999811,
-                8.880262231537047, 9.049091134769006,
-                5.980145075454821, 5.91632654653123,
-                ])
-        expected_osteolaemus = sorted([
-                5.094794597113713, 5.2060168284681225,
-                6.610642417475237, 6.6974853173279705,
-                7.621088625461037, 7.715969598889821,
-                7.223120239867402, 7.0263267708481925,
-                ])
-
-        expected_kikuchii = sorted([
-                0.02721530343176, 0.0261044431547,
-                0.041167646421379996, 0.04907320501923,
-                0.146814958946, 0.11886249552520001,
-                0.1393305421926, 0.12840039221740002,
-                ])
-        expected_negros_panay = sorted([
-                1.265195722159, 1.4052596825099999,
-                0.80855471807, 0.88277607765,
-                1.6664470532750002, 1.8156460958379999,
-                1.462959885987, 1.491361934884,
-                ])
-        expected_mindoro_caluya = sorted([
-                0.3925895072452, 0.3258940306721,
-                0.2813710152072, 0.6968195707754,
-                0.43292023300669996, 0.6484198072188,
-                0.4317073941498, 0.4930305649664,
-                ])
         expected_codiv_np_mc = 1
         expected_croc_lt_osteo = 0
         expected_kikuchii_lt_osteo_lt_croc = 8
@@ -1752,6 +1693,63 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
                 analysis.expressions[5][1].num_true,
                 expected_croc_lt_osteo_or_wnil_lt_mind
                 )
+
+    def test_unequal_sample_sizes(self):
+        config_path = self.data_path('config-unequal-burnin.yml')
+
+        
+        _RNG.seed(1)
+        analysis1 = AnalysisManager(
+                config_path = config_path,
+                num_processors = 8)
+        self.assertEqual(analysis1.num_processors, 8)
+        self.assertEqual(len(analysis1.posterior_samples), 2)
+        self.assertEqual(analysis1.shared_nodes, [])
+
+        analysis1.run_analysis()
+        ntrue1 = []
+        for exp_str, evaluator in analysis1.expressions:
+            self.assertEqual(evaluator.num_evals, 320)
+            ntrue1.append(evaluator.num_true)
+
+        TipSubset.registered_names = set()
+        TipSubset.count = 0
+        PosteriorSample.count = 0
+
+        _RNG.seed(1)
+        analysis2 = AnalysisManager(
+                config_path = config_path,
+                num_processors = 8)
+        self.assertEqual(analysis2.num_processors, 8)
+        self.assertEqual(len(analysis2.posterior_samples), 2)
+        self.assertEqual(analysis2.shared_nodes, [])
+
+        analysis2.run_analysis()
+        ntrue2 = []
+        for exp_str, evaluator in analysis2.expressions:
+            self.assertEqual(evaluator.num_evals, 320)
+            ntrue2.append(evaluator.num_true)
+
+        TipSubset.registered_names = set()
+        TipSubset.count = 0
+        PosteriorSample.count = 0
+
+        _RNG.seed(2343)
+        analysis3 = AnalysisManager(
+                config_path = config_path,
+                num_processors = 8)
+        self.assertEqual(analysis3.num_processors, 8)
+        self.assertEqual(len(analysis3.posterior_samples), 2)
+        self.assertEqual(analysis3.shared_nodes, [])
+
+        analysis3.run_analysis()
+        ntrue3 = []
+        for exp_str, evaluator in analysis3.expressions:
+            self.assertEqual(evaluator.num_evals, 320)
+            ntrue3.append(evaluator.num_true)
+
+        self.assertEqual(ntrue1, ntrue2)
+        self.assertNotEqual(ntrue1, ntrue3)
 
 
 if __name__ == "__main__":

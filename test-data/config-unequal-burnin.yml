@@ -1,0 +1,100 @@
+---
+- posterior:
+    paths:
+        - trees/crocs-1.trees.gz
+        - trees/crocs-2.trees.gz
+        - trees/crocs-3.trees.gz
+        - trees/crocs-4.trees.gz
+    burnin: 10
+    tip_subsets:
+        - name: crocodylus
+          tips:
+            - poro
+            - palu
+            - siam
+            - acut
+            - inte
+            - rhom
+            - more
+            - nil1
+            - nil2
+            - john
+            - nova
+            - mind
+
+        - name: west_niloticus
+          tips:
+              - nil2
+          stem_based: True
+
+        - name: osteolaemus
+          tips: [oste1, oste2]
+
+        - name: gharials
+          tips: [Gav, Tom]
+
+        - name: melanosuchus
+          tips: [Mnig]
+          stem_based: True
+
+        - name: paleosuchus
+          tips: [Ppal, Ptrig]
+
+        - name: alligator
+          tips:
+              - Amis
+              - Asin
+          stem_based: False
+
+
+- posterior:
+    paths: [trees/gekko-1.trees.gz, trees/gekko-2.trees.gz, trees/gekko-3.trees.gz, trees/gekko-4.trees.gz]
+    burnin: 20
+    tip_subsets:
+        - name: mindorensis
+          tips:
+            - mi1
+            - mi2
+            - mi3
+            - mi4
+            - mi5
+            - mi6
+            - mi7
+            - mi8
+            - mi9
+            - mi10
+            - mi11
+            - mi12
+            - mi13
+            - mi14
+            - mi15
+
+        - name: kikuchii 
+          tips: [mi3]
+          stem_based: True
+
+        - name: negros-panay
+          tips: [mi8, mi9]
+
+        - name: mindoro-caluya
+          tips: [mi14, mi15]
+
+- expression: >
+    codiverged(nodes = [negros-panay, mindoro-caluya], window = 0.1)
+
+- expression: >
+    crocodylus < osteolaemus
+
+- expression: >
+    kikuchii < crocodylus < osteolaemus
+
+- expression: >
+    (crocodylus < osteolaemus) & (crocodylus > kikuchii)
+
+- expression: >
+    codiverged(nodes = [crocodylus, paleosuchus, mindorensis], window=8-12)
+    & (crocodylus > alligator)
+
+- expression: >
+    (crocodylus < osteolaemus) |
+    (crocodylus < mindorensis)
