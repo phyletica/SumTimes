@@ -1,0 +1,31 @@
+{% extends "sphinxdoc/layout.html" %}
+
+{% block rootrellink %}
+<li><a href="{{ pathto('index') }}">Home</a>&nbsp;|</li>
+<li><a href="{{ pathto('intro/installation') }}">Install</a>&nbsp;|</li>
+<li><a href="{{ pathto('doc') }}">Documentation</a>&nbsp;|</li>
+{% endblock %}
+
+{% block header %}
+<div id="header_wrap" class="outer">
+    <header class="inner">
+      <a id="forkme_banner" href="https://github.com/phyletica/SumTimes">View on GitHub</a>
+
+      <h1 id="project_title"><a href="{{ pathto('index') }}">SumTimes</a></h1>
+      <h2 id="project_tagline">A tool for summarizing posterior probabilities of divergence-time scenarios from posteriors of trees</h2>
+
+        <section id="downloads">
+          <a class="zip_download_link" href="https://github.com/phyletica/SumTimes/zipball/master">Download this project as a .zip file</a>
+          <a class="tar_download_link" href="https://github.com/phyletica/SumTimes/tarball/master">Download this project as a tar.gz file</a>
+        </section>
+    </header>
+</div>
+{% endblock %}
+
+{% block footer %}
+<div class="footer">
+<span class="creativecommons">
+<a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a><br />This documentation is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
+</span>
+</div>
+{% endblock %}

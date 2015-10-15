@@ -1,0 +1,14 @@
+\usepackage{ifthen}
+\usepackage{xspace}
+\newcommand{\bshapea}{\ensuremath{a}\xspace}
+\newcommand{\bshapeb}{\ensuremath{b}\xspace}
+\newcommand{\gshape}{\ensuremath{k}\xspace}
+\newcommand{\gscale}{\ensuremath{\theta}\xspace}
+\newcommand{\ifTwoArgs}[3]{\ifthenelse{\equal{#1}{}\or\equal{#2}{}}{}{#3}\xspace}
+\newcommand{\ifArg}[2]{\ifthenelse{\equal{#1}{}}{}{#2}\xspace}
+\newcommand{\divTime}[1]{\ensuremath{\tau_{#1}}}
+\newcommand{\gammaShape}[1]{\ensuremath{a_{#1}}\xspace}
+\newcommand{\gammaScale}[1]{\ensuremath{b_{#1}}\xspace}
+\newcommand{\betaA}[1]{\ensuremath{a_{#1}}\xspace}
+\newcommand{\betaB}[1]{\ensuremath{b_{#1}}\xspace}
+\newcommand{\given}{\ensuremath{\,|\,}\xspace}
