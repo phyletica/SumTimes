@@ -14,11 +14,10 @@ Contents:
     :numbered:
 
     intro/intro
-    intro/prerequisites
     intro/installation
     changes
-    acknowledgments
-    license/license-short
+    acknowledgments.rst
+    license/license-short.rst
     zbib/references
 
 

@@ -4,6 +4,34 @@
 Installation
 ************
 
+
+.. _prerequisites:
+
+Prerequisites
+=============
+
+|sumtimes|_ has been tested on versions 2.7 and 3.4 of |python|. There are two |python|
+dependencies:
+
+*   |dendro|_ :cite:`Dendropy`
+*   |pyyaml|_
+
+If you do not have these modules, you will need to install them before you can
+use |sumtimes|_. You can do this via the command line::
+
+    $ sudo pip install dendropy
+    $ sudo pip install pyyaml
+
+If you do not have admin privileges, or you prefer to install locally, you can
+use::
+
+    $ pip install --user dendropy
+    $ pip install --user pyyaml
+
+
+Installing sumtimes.py
+======================
+
 You should have |python|_ and :ref:`the required modules<prerequisites>`
 installed.
 
@@ -39,9 +67,9 @@ Or:
     $ cp |st| ~/bin
 
 Alternatively, you can run |lst| from your current directory by using the
-``./|st|`` like we did above when we ran the tests. However, the remainder of
-this documentation assumes the script is in your PATH, so if it is not, you
-will have to remember to add the "``./``" bit.
+``./sumtimes.py`` like we did above when we ran the tests. However, the
+remainder of this documentation assumes the script is in your PATH, so if it is
+not, you will have to remember to add the "``./``" bit.
 
 You should be able to call up the help menu of |lst|:
 
