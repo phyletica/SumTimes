@@ -1768,13 +1768,23 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
 
 if __name__ == "__main__":
     if "--run-tests" in sys.argv:
+
+        sys.stderr.write("""
+*********************************************************************
+Running test suite using the following Python executable and version:
+{0}
+{1}
+*********************************************************************
+\n""".format(sys.executable, sys.version))
+
         import doctest
 
         # doctest.testmod(verbose = True)
         suite = unittest.TestSuite()
         suite.addTest(doctest.DocTestSuite())
 
-        tests = unittest.defaultTestLoader.loadTestsFromName(os.path.splitext(__file__)[0])
+        tests = unittest.defaultTestLoader.loadTestsFromName(
+               os.path.splitext(os.path.basename(__file__))[0])
         suite.addTests(tests)
 
         runner = unittest.TextTestRunner(verbosity = 2)
