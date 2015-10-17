@@ -15,6 +15,8 @@ Contents:
 
     intro/intro
     intro/installation
+    intro/background
+    intro/config
     changes
     acknowledgments.rst
     license/license-short.rst

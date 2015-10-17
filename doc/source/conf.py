@@ -132,6 +132,10 @@ rst_epilog = """
 .. _dendro: https://pythonhosted.org/DendroPy/
 .. |pyyaml| replace:: PyYAML
 .. _pyyaml: http://pyyaml.org/
+.. |beast| replace:: BEAST
+.. _beast: http://beast2.org
+.. |revbayes| replace:: RevBayes
+.. _revbayes: http://revbayes.github.io
 
 .. |st| replace:: sumtimes.py
 .. |lst| replace:: ``sumtimes.py``

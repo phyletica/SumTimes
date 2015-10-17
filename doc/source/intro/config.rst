@@ -1,0 +1,151 @@
+.. role:: bolditalic
+.. role:: hlight 
+
+.. _config:
+
+**********************
+The Configuration File
+**********************
+
+You need to create a configuration file to run |sumtimes|_. Here's an example:
+
+.. code-block:: yaml
+
+    ---
+    # At the top level, the config file is simply a list of "posterior" and
+    # "expression" items.
+    #
+    # Each "posterior" is a posterior sample of rooted trees with branch lengths
+    # proportional to time (e.g., the output of a BEAST analysis). You must specify
+    # at least one "posterior". You will need ot specify multiple "posterior"s if
+    # you want to compare divergence times across multiple tree posteriors (e.g.,
+    # you want to compare divergence times across different taxa that were analyzed
+    # in separate BEAST analyses)
+    #
+    - posterior:
+        # You must specify the "paths" to where the posterior sample of trees is
+        # located. The can be full paths OR relative to the location of the config
+        # file. You can specify multiple paths, for example, if you ran multiple
+        # independent MCMC chains on the same dataset.
+        paths:
+            - trees/crocs-1.trees.gz
+            - trees/crocs-2.trees.gz
+            - trees/crocs-3.trees.gz
+            - trees/crocs-4.trees.gz
+        # "schema" is an optional argument that specifies the file format of the
+        # tree files; the default it 'nexus'.
+        schema: nexus
+        # "burnin" is an optional argument that specifies the number of trees to
+        # ignore in *each* tree file; the default is '0' (use all the trees).
+        burnin: 10
+    
+        # "tip_subsets" are how you tell SumTrees which nodes you are interested
+        # in comparing.
+        tip_subsets:
+            # Each tip subset must include a "name" and the list of "tips" (OTUs).
+            # The names must be unique and can contain letters, numbers, periods,
+            # dashes, and underscores, but no spaces.
+            - name: crocodylus
+              # The tips must match the names of the tips (OTUs) in the tree
+              # file(s). By default, the age of the MRCA of the tips will be pulled
+              # from each tree in the posterior sample. However, you can also
+              # specify "stem_based: True" if you want the parent node of the MRCA
+              # to be used.
+              tips:
+                - poro
+                - palu
+                - siam
+                - acut
+                - inte
+                - rhom
+                - more
+                - nil1
+                - nil2
+                - john
+                - nova
+                - mind
+    
+            - name: west_niloticus
+              tips:
+                  - nil2
+              stem_based: True
+    
+            - name: osteolaemus
+              # Note, the [...] syntax is another way to specify a list in YAML.
+              tips: [oste1, oste2]
+    
+            - name: gharials
+              tips: [Gav, Tom]
+    
+            - name: melanosuchus
+              tips: [Mnig]
+              stem_based: True
+    
+            - name: paleosuchus
+              tips: [Ppal, Ptrig]
+    
+            - name: alligator
+              tips:
+                  - Amis
+                  - Asin
+              stem_based: False
+    
+    
+    - posterior:
+        paths: [trees/gekko-1.trees.gz, trees/gekko-2.trees.gz, trees/gekko-3.trees.gz, trees/gekko-4.trees.gz]
+        burnin: 10
+        tip_subsets:
+            - name: mindorensis
+              tips:
+                - mi1
+                - mi2
+                - mi3
+                - mi4
+                - mi5
+                - mi6
+                - mi7
+                - mi8
+                - mi9
+                - mi10
+                - mi11
+                - mi12
+                - mi13
+                - mi14
+                - mi15
+    
+            - name: kikuchii 
+              tips: [mi3]
+              stem_based: True
+    
+            - name: negros-panay
+              tips: [mi8, mi9]
+    
+            - name: mindoro-caluya
+              tips: [mi14, mi15]
+    
+    # Each expression is simply a string that describes a divergence-time scenario
+    # for which a posterior probability is to be estimated.
+    # NOTE, the ">" in "expression: >" is important, because it tells YAML that
+    # everything indented underneath should be treated as one contiguous string.
+    - expression: >
+        codiverged(nodes = [{negros-panay}, {mindoro-caluya}], window = 0.1)
+    
+    - expression: >
+        {crocodylus} < {osteolaemus}
+    
+    - expression: >
+        {kikuchii} < {crocodylus} < {osteolaemus}
+    
+    - expression: >
+        ({crocodylus} < {osteolaemus}) & ({crocodylus} > {kikuchii})
+    
+    - expression: >
+        codiverged(nodes = [{crocodylus}, {paleosuchus}, {mindorensis}], window=8-12)
+        & ({crocodylus} > {alligator})
+    
+    - expression: >
+        ({crocodylus} < {osteolaemus}) |
+        ({crocodylus} < {mindorensis})
+
+
+The config files are in YAML format.
