@@ -11,8 +11,8 @@
 #
 - posterior:
     # You must specify the "paths" to where the posterior sample of trees is
-    # located. The paths should be relative to the location of the config file.
-    # You can specify multiple paths, for example, if you ran multiple
+    # located. The can be full paths OR relative to the location of the config
+    # file. You can specify multiple paths, for example, if you ran multiple
     # independent MCMC chains on the same dataset.
     paths:
         - trees/crocs-1.trees.gz
@@ -112,7 +112,7 @@
 
 # Each expression is simply a string that describes a divergence-time scenario
 # for which a posterior probability is to be estimated.
-# NOTE, the ">" in "expression: >" is important, because it tells YAML that the
+# NOTE, the ">" in "expression: >" is important, because it tells YAML that
 # everything indented underneath should be treated as one contiguous string.
 - expression: >
     codiverged(nodes = [{negros-panay}, {mindoro-caluya}], window = 0.1)
