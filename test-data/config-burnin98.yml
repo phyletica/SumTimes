@@ -80,21 +80,21 @@
           tips: [mi14, mi15]
 
 - expression: >
-    codiverged(nodes = [negros-panay, mindoro-caluya], window = 0.2)
+    codiverged(nodes = [{negros-panay}, {mindoro-caluya}], window = 0.2)
 
 - expression: >
-    crocodylus < osteolaemus
+    {crocodylus} < {osteolaemus}
 
 - expression: >
-    kikuchii < osteolaemus < crocodylus
+    {kikuchii} < {osteolaemus} < {crocodylus}
 
 - expression: >
-    (crocodylus > paleosuchus) & (mindorensis > osteolaemus)
+    ({crocodylus} > {paleosuchus}) & ({mindorensis} > {osteolaemus})
 
 - expression: >
-    codiverged(nodes = [crocodylus, paleosuchus, mindorensis], window=8-12)
-    & (crocodylus < alligator)
+    codiverged(nodes = [{crocodylus}, {paleosuchus}, {mindorensis}], window=8-12)
+    & ({crocodylus} < {alligator})
 
 - expression: >
-    (crocodylus < osteolaemus) |
-    (west_niloticus < mindorensis)
+    ({crocodylus} < {osteolaemus}) |
+    ({west_niloticus} < {mindorensis})

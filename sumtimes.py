@@ -421,12 +421,14 @@ class AnalysisManager(object):
 
     number_pattern_string = r'[\d\.Ee\-\+]+'
     nodes_pattern_string = r'[\w\s\,\.\-\{\}]+'
+    node_name_pattern_string = r'(?P<format_key>\{\s*(?P<name>[\w\.\-]+)\s*\})'
     codiverged_pattern_string = (
             '(?P<block>codiverged\s*\(\s*'
             'nodes\s*=\s*\[\s*(?P<nodes>{0})\s*\]'
             '\s*,\s*'
             'window\s*=\s*(?P<window>[\s\d\.Ee\-\+]+)\s*\))'.format(
                     nodes_pattern_string))
+    node_name_pattern = re.compile(node_name_pattern_string)
     codiverged_pattern = re.compile(codiverged_pattern_string)
 
     window_pattern_string = '(?P<min>{0})\s*-\s*(?P<max>{0})'.format(number_pattern_string)
@@ -482,9 +484,21 @@ class AnalysisManager(object):
 
     def _parse_expression(self, expression):
         new_expression = expression
-        for name in self.tip_subset_names:
-            new_expression = new_expression.replace(name, '{{{0}}}'.format(
-                    name))
+        match_idx = -1
+        for match_idx, name_match in enumerate(
+                self.node_name_pattern.finditer(expression)):
+            name_str = name_match.group('name').strip()
+            if not name_str in self.tip_subset_names:
+                raise YamlConfigFormattingError(
+                        "undefined tip subset name {0!r} used in "
+                        "expression:\n{1}".format(name_str, expression))
+            format_key = name_match.group('format_key')
+            new_expression = new_expression.replace(format_key, '{{{0}}}'.format(
+                    name_str))
+        if match_idx < 0:
+            raise YamlConfigFormattingError(
+                    "no defined tip subset names found in expression:\n"
+                    "{0}".format(expression))
         match_idx = -1
         for match_idx, codiv_match in enumerate(
                 self.codiverged_pattern.finditer(new_expression)):
