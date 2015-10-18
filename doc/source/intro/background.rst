@@ -29,9 +29,12 @@ number of nodes across an arbitrary number of posterior tree samples.
 How |sumtimes|_ works
 =====================
 
-The main inputs to |sumtimes|_ are one or more posterior sample of trees, nodes
-of interest in those trees, and expressions conveying the relationships between
-the timing of those nodes for which you want posterior probabilities.
+The main inputs to |sumtimes|_ are:
+
+*   One or more posterior sample of trees
+*   Nodes of interest in those trees
+*   Expressions of divergence-time scenarios of interest
+
 You specify a node of interest by listing a subset of the tips found on each
 tree in the posterior sample.
 From each tree in the posterior sample, |sumtimes|_ will extract the age of the
