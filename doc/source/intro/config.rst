@@ -7,21 +7,12 @@
 The Configuration File
 **********************
 
-You need to create a configuration file to run |sumtimes|_. Here's an example:
+To run |sumtimes|_ you will need a YAML-formatted configuration file.
+Here's an example:
 
 .. code-block:: yaml
 
     ---
-    # At the top level, the config file is simply a list of "posterior" and
-    # "expression" items.
-    #
-    # Each "posterior" is a posterior sample of rooted trees with branch lengths
-    # proportional to time (e.g., the output of a BEAST analysis). You must specify
-    # at least one "posterior". You will need ot specify multiple "posterior"s if
-    # you want to compare divergence times across multiple tree posteriors (e.g.,
-    # you want to compare divergence times across different taxa that were analyzed
-    # in separate BEAST analyses)
-    #
     - posterior:
         # You must specify the "paths" to where the posterior sample of trees is
         # located. The can be full paths OR relative to the location of the config
@@ -149,3 +140,34 @@ You need to create a configuration file to run |sumtimes|_. Here's an example:
 
 
 The config files are in YAML format.
+At the top level, the config file is simply a list of ``posterior`` and
+``expression`` items.
+Each ``posterior`` is a posterior sample of rooted trees with branch lengths
+proportional to time (e.g., the output of a |revbayes|_ or |BEAST|_ analysis).
+You must specify at least one ``posterior``.
+You will need ot specify multiple ``posterior``s if you want to compare
+divergence times across multiple tree posteriors (e.g., you want to compare
+divergence times across different taxa that were analyzed in separate
+analyses).
+
+For each ``posterior``, you must specify the ``paths`` to the files containing
+the posterior sample of trees, and at least one ``tip_subset``, which is a list
+of tip labels that defines a node for which you are interested in summarizing
+the age.
+
+Here's the simplest possible example for a ``posterior``:
+
+
+.. code-block:: yaml
+    - posterior:
+        paths: [gekko-1.trees.gz]
+        tip_subsets:
+            - name: mindorensis
+              tips:
+                - mi1
+
+Here, we are saying that all the tree samples are in a single file
+``gekko-1.trees.gz``.
+You can specify the paths as relative to the config file (in this case the tree
+file ``gekko-1.trees.gz`` must be in the same directory as the config file), or
+as full paths.
