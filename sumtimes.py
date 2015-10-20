@@ -599,13 +599,12 @@ class AnalysisManager(object):
     def _write_results(self):
         for expression_str, evaluator in self.expressions:
             results = {}
-            results['tab'] = "    "
             results['exp_str'] = expression_str
             results['num_samples'] = evaluator.num_evals
             results['num_true'] = evaluator.num_true
             results['prob'] = float(evaluator.num_true) / float(evaluator.num_evals)
-            # sys.stdout.write("- result:\n")
-            sys.stdout.write("- expression: >\n{tab}{tab}{exp_str}\n".format(**results))
+            sys.stdout.write("- expression: >\n")
+            sys.stdout.write("    {exp_str}\n".format(**results))
             sys.stdout.write("  number_of_samples: {num_samples}\n".format(**results))
             sys.stdout.write("  number_of_samples_passing: {num_true}\n".format(**results))
             sys.stdout.write("  estimated_posterior_probability: {prob}\n".format(**results))
