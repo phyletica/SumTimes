@@ -801,7 +801,7 @@ class PosteriorWorker(object):
                     continue
                 if not tree.is_rooted:
                     raise Exception('Tree {0} in {1!r} is not rooted'.format(
-                            i + 1,
+                            tree_idx + 1,
                             self.path))
                 tree.calc_node_ages()
                 nodes_visited = {}
