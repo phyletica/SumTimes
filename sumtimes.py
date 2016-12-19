@@ -391,24 +391,24 @@ class ConditionEvaluator(object):
         return ret
 
 
-class SumDivTimesError(Exception):
+class SumTimesError(Exception):
     def __init__(self, *args, **kwargs):
         Exception.__init__(self, *args, **kwargs)
 
 
-class TipSubsetDataError(SumDivTimesError):
+class TipSubsetDataError(SumTimesError):
     def __init__(self, *args, **kwargs):
-        SumDivTimesError.__init__(self, *args, **kwargs)
+        SumTimesError.__init__(self, *args, **kwargs)
 
 
-class PosteriorSampleDataError(SumDivTimesError):
+class PosteriorSampleDataError(SumTimesError):
     def __init__(self, *args, **kwargs):
-        SumDivTimesError.__init__(self, *args, **kwargs)
+        SumTimesError.__init__(self, *args, **kwargs)
 
 
-class YamlConfigFormattingError(SumDivTimesError):
+class YamlConfigFormattingError(SumTimesError):
     def __init__(self, *args, **kwargs):
-        SumDivTimesError.__init__(self, *args, **kwargs)
+        SumTimesError.__init__(self, *args, **kwargs)
 
 
 class AnalysisManager(object):
@@ -463,6 +463,11 @@ class AnalysisManager(object):
         self.num_processors = int(num_processors)
         self.shared_nodes = []
         tip_subset_names = []
+        for ps in self.posterior_samples:
+            for path in ps.paths:
+                if not is_file(path):
+                    raise SumTimesError(
+                            "Cannot find path {0!r}".format(path))
         for posterior_sample in self.posterior_sample_map.values():
             for tip_subset in posterior_sample.tip_subset_map.values():
                 tip_subset_names.append(tip_subset.name)
@@ -720,11 +725,20 @@ class PosteriorSample(object):
 
     def sample_iter(self, sample_size = None, rng = None):
         index_iter = range(self.sample_size)
-        if sample_size:
+        if sample_size and (sample_size != self.sample_size):
             if not rng:
                 rng = _RNG
-            index_iter = (rng.choice(range(self.sample_size)) for i in range(
-                    sample_size))
+            if sample_size > self.sample_size:
+                # index_iter = (rng.choice(range(self.sample_size)) for i in range(
+                #         sample_size))
+                raise SumTimesError(
+                        "Requesting a sample of size {0} from a "
+                        "PosteriorSample with {1} samples".format(
+                                sample_size,
+                                self.sample_size))
+            else:
+                index_iter = sorted(rng.sample(range(self.sample_size), sample_size))
+
         for idx in index_iter:
             d = {}
             for ts in self.tip_subsets:
@@ -1141,7 +1155,7 @@ def main_cli(argv = sys.argv):
     analysis.run_analysis()
 
     
-class SumDivTimesTestCase(unittest.TestCase):
+class SumTimesTestCase(unittest.TestCase):
     SCRIPT_PATH = os.path.abspath(__file__)
     BASE_DIR = os.path.abspath(os.path.dirname(SCRIPT_PATH))
     TEST_DATA_DIR = os.path.join(BASE_DIR, "test-data")
@@ -1152,7 +1166,7 @@ class SumDivTimesTestCase(unittest.TestCase):
     def script_path(self):
         return self.SCRIPT_PATH
 
-class IsFileTestCase(SumDivTimesTestCase):
+class IsFileTestCase(SumTimesTestCase):
     def setUp(self):
         self.path = self.data_path('config.yml')
         self.bogus_path = self.data_path("bogusdatafilename")
@@ -1162,7 +1176,7 @@ class IsFileTestCase(SumDivTimesTestCase):
         self.assertFalse(is_file(self.bogus_path))
         self.assertTrue(is_file(self.path))
 
-class ArgIsFileTestCase(SumDivTimesTestCase):
+class ArgIsFileTestCase(SumTimesTestCase):
     def test_simple(self):
         expected_path = os.path.abspath(__file__)
         self.assertTrue(expected_path == arg_is_file(__file__))
@@ -1172,7 +1186,7 @@ class ArgIsFileTestCase(SumDivTimesTestCase):
                 arg_is_file,
                 "/this/path/probably/is/not/on/anyones/system")
 
-class ArgIsPositiveIntTestCase(SumDivTimesTestCase):
+class ArgIsPositiveIntTestCase(SumTimesTestCase):
     def test_simple(self):
         self.assertEqual(arg_is_positive_int(1), 1)
 
@@ -1181,7 +1195,7 @@ class ArgIsPositiveIntTestCase(SumDivTimesTestCase):
                 arg_is_positive_int,
                 -1)
 
-class AnalysisManagerTestCase(SumDivTimesTestCase):
+class AnalysisManagerTestCase(SumTimesTestCase):
     def setUp(self):
         self.config_path = self.data_path('config.yml')
         TipSubset.registered_names = set()
@@ -1710,7 +1724,6 @@ class AnalysisManagerTestCase(SumDivTimesTestCase):
     def test_unequal_sample_sizes(self):
         config_path = self.data_path('config-unequal-burnin.yml')
 
-        
         _RNG.seed(1)
         analysis1 = AnalysisManager(
                 config_path = config_path,
