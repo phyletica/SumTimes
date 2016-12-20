@@ -1,0 +1,60 @@
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 5.0)
+  number_of_samples: 7500
+  number_of_samples_passing: 3327
+  estimated_posterior_probability: 0.4436
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 6.0)
+  number_of_samples: 10
+  number_of_samples_passing: 0
+  estimated_posterior_probability: 0.0
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 7.0)
+  number_of_samples: 20
+  number_of_samples_passing: 20
+  estimated_posterior_probability: 1.0
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 8.0)
+  number_of_samples: 10
+  number_of_samples_passing: 2
+  estimated_posterior_probability: 0.2
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 9.0)
+  number_of_samples: 10
+  number_of_samples_passing: 10
+  estimated_posterior_probability: 1.0
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 10.0)
+  number_of_samples: 10
+  number_of_samples_passing: 10
+  estimated_posterior_probability: 1.0
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 11.0)
+  number_of_samples: 20
+  number_of_samples_passing: 0
+  estimated_posterior_probability: 0.0
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 12.0)
+  number_of_samples: 10
+  number_of_samples_passing: 3
+  estimated_posterior_probability: 0.3
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 13.0)
+  number_of_samples: 10
+  number_of_samples_passing: 0
+  estimated_posterior_probability: 0.0
+- expression: >
+    codiverged(nodes = [{dhufarensis}, {ehrenbergii}, {felixarabica}], window = 3.0)
+  number_of_samples: 7500
+  number_of_samples_passing: 144
+  estimated_posterior_probability: 0.0192
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 3.0) & codiverged(nodes = [{dhufarensis}, {ehrenbergii}, {felixarabica}], window = 3.0) & ({tihamicus} > max({dhufarensis}, {ehrenbergii}, {felixarabica})) & ({arabicus} > max({dhufarensis}, {ehrenbergii}, {felixarabica}))
+  number_of_samples: 7500
+  number_of_samples_passing: 8
+  estimated_posterior_probability: 0.00106666666667
+- expression: >
+    codiverged(nodes = [{tihamicus}, {arabicus}], window = 10-30)
+  number_of_samples: 7500
+  number_of_samples_passing: 1032
+  estimated_posterior_probability: 0.1376
