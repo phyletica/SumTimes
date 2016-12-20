@@ -102,12 +102,16 @@ def calculate_bayes_factors(
     posterior_expressions = {}
     prior_expressions = {}
     expected_keys = ['estimated_posterior_probability', 'expression', 'number_of_samples', 'number_of_samples_passing']
+    ordered_expressions = []
     for result_dict in posterior_results:
         assert sorted(result_dict.keys()) == expected_keys
-        posterior_expressions[result_dict['expression'].strip()] = result_dict
+        exp = result_dict['expression'].strip()
+        posterior_expressions[exp] = result_dict
+        ordered_expressions.append(exp)
     for result_dict in prior_results:
         assert sorted(result_dict.keys()) == expected_keys
-        prior_expressions[result_dict['expression'].strip()] = result_dict
+        exp = result_dict['expression'].strip()
+        prior_expressions[exp] = result_dict
 
     posterior_expression_set = set(posterior_expressions.keys())
     prior_expression_set = set(prior_expressions.keys())
@@ -130,7 +134,8 @@ def calculate_bayes_factors(
         sys.exit(1)
 
     bayes_factors = {}
-    for expression in common_expression_set:
+    exp_iter = (e for e in ordered_expressions if e in common_expression_set)
+    for expression in exp_iter:
         posterior_k = posterior_expressions[expression]['number_of_samples_passing']
         posterior_n = posterior_expressions[expression]['number_of_samples']
         prior_k = prior_expressions[expression]['number_of_samples_passing']
